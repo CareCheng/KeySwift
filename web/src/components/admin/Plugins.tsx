@@ -8,7 +8,7 @@ import { cn, formatDateTime } from '@/lib/utils'
 import { PLUGIN_FRONTEND_CHANGED_EVENT } from '@/lib/pluginRegistry'
 
 type BadgeVariant = 'success' | 'warning' | 'danger' | 'info' | 'default'
-type DetailTab = 'overview' | 'bindings' | 'migrations' | 'configs' | 'manifest'
+type DetailTab = 'overview' | 'bindings' | 'migrations' | 'database' | 'configs' | 'manifest'
 
 interface PluginSummary {
   plugin_root?: string
@@ -44,6 +44,7 @@ interface PluginListItem {
   events: number
   jobs: number
   migrations: number
+  database_tables: number
 }
 
 interface PluginRegistryRecord {
@@ -187,6 +188,107 @@ interface PluginConfigRecord {
   updated_at: string
 }
 
+interface PluginDatabaseDeclaration {
+  id?: number
+  plugin_id?: string
+  plugin_version?: string
+  namespace?: string
+  storage_mode?: string
+  table_count?: number
+  status?: string
+  extensions_json?: string
+  updated_at?: string
+}
+
+interface PluginDatabaseTable {
+  id: number
+  table_key: string
+  physical_table_name: string
+  table_kind: string
+  schema_version: string
+  schema_checksum: string
+  status: string
+  sensitivity: string
+  create_policy: string
+  drop_policy: string
+  backup_policy: string
+  retention_policy: string
+  description: string
+  extensions_json: string
+}
+
+interface PluginDatabaseColumn {
+  id: number
+  table_id: number
+  column_key: string
+  column_name: string
+  db_type: string
+  logical_type: string
+  nullable: boolean
+  default_value_json: string
+  primary_key: boolean
+  auto_increment: boolean
+  unique_key: boolean
+  indexed: boolean
+  encrypted: boolean
+  secret: boolean
+  reference_type: string
+  reference_target: string
+  description: string
+  extensions_json: string
+}
+
+interface PluginDatabaseIndex {
+  id: number
+  table_id: number
+  index_key: string
+  index_name: string
+  columns_json: string
+  unique_index: boolean
+  status: string
+  extensions_json: string
+}
+
+interface PluginDatabaseRelation {
+  id: number
+  table_id: number
+  relation_key: string
+  local_column: string
+  target_resource_type: string
+  target_key: string
+  relation_type: string
+  required: boolean
+  on_delete_policy: string
+  extensions_json: string
+}
+
+interface PluginDatabaseOperation {
+  id: number
+  operation_id: string
+  plugin_version: string
+  table_key: string
+  operation_type: string
+  path: string
+  requires_review: boolean
+  status: string
+  schema_checksum: string
+  executed_by: string
+  error_message: string
+  extensions_json: string
+  started_at?: string
+  finished_at?: string
+  created_at?: string
+}
+
+interface PluginDatabaseSnapshot {
+  declaration?: PluginDatabaseDeclaration | null
+  tables?: PluginDatabaseTable[]
+  columns?: PluginDatabaseColumn[]
+  indexes?: PluginDatabaseIndex[]
+  relations?: PluginDatabaseRelation[]
+  operations?: PluginDatabaseOperation[]
+}
+
 interface ConfigSchema {
   schemaVersion?: string
   pluginId?: string
@@ -227,12 +329,14 @@ interface DetailBundle {
   migrations: PluginMigration[]
   configs: PluginConfigRecord[]
   schemas: ConfigSchema[]
+  database: PluginDatabaseSnapshot
 }
 
 const DETAIL_TABS: Array<{ key: DetailTab; label: string }> = [
   { key: 'overview', label: '概览' },
   { key: 'bindings', label: '绑定' },
   { key: 'migrations', label: '迁移' },
+  { key: 'database', label: '数据库' },
   { key: 'configs', label: '配置' },
   { key: 'manifest', label: 'Manifest' },
 ]
@@ -243,6 +347,14 @@ const EMPTY_DETAIL: DetailBundle = {
   migrations: [],
   configs: [],
   schemas: [],
+  database: {
+    declaration: null,
+    tables: [],
+    columns: [],
+    indexes: [],
+    relations: [],
+    operations: [],
+  },
 }
 
 /**
@@ -291,10 +403,11 @@ export function PluginsPage() {
     }
 
     setDetailLoading(true)
-    const [detailRes, bindingsRes, migrationsRes, configsRes, schemasRes] = await Promise.all([
+    const [detailRes, bindingsRes, migrationsRes, databaseRes, configsRes, schemasRes] = await Promise.all([
       apiGet<{ plugin: PluginDetail }>(`/api/admin/plugin/${encodeURIComponent(pluginID)}`),
       apiGet<{ bindings: PluginBinding[] }>(`/api/admin/plugin/${encodeURIComponent(pluginID)}/bindings`),
       apiGet<{ migrations: PluginMigration[] }>(`/api/admin/plugin/${encodeURIComponent(pluginID)}/migrations`),
+      apiGet<{ database: PluginDatabaseSnapshot }>(`/api/admin/plugin/${encodeURIComponent(pluginID)}/database`),
       apiGet<{ configs: PluginConfigRecord[] }>(`/api/admin/plugin/${encodeURIComponent(pluginID)}/configs`),
       apiGet<{ schemas: ConfigSchema[] }>('/api/admin/plugins/config-schemas'),
     ])
@@ -316,6 +429,7 @@ export function PluginsPage() {
       migrations: migrationsRes.success ? migrationsRes.migrations || [] : [],
       configs: configsRes.success ? configsRes.configs || [] : [],
       schemas,
+      database: databaseRes.success && databaseRes.database ? normalizeDatabaseSnapshot(databaseRes.database) : EMPTY_DETAIL.database,
     })
     setDetailLoading(false)
   }, [])
@@ -381,7 +495,9 @@ export function PluginsPage() {
   }
 
   const capabilityTotal = useMemo(() => {
-    return plugins.reduce((total, plugin) => total + plugin.pages + plugin.menus + plugin.routes + plugin.events + plugin.jobs, 0)
+    return plugins.reduce((total, plugin) => {
+      return total + plugin.pages + plugin.menus + plugin.routes + plugin.events + plugin.jobs + (plugin.database_tables || 0)
+    }, 0)
   }, [plugins])
 
   return (
@@ -476,11 +592,12 @@ export function PluginsPage() {
                   <p className="mt-3 line-clamp-2 text-sm text-dark-400">
                     {plugin.description || '未提供描述'}
                   </p>
-                  <div className="mt-4 grid grid-cols-4 gap-2 text-center text-xs">
+                  <div className="mt-4 grid grid-cols-5 gap-2 text-center text-xs">
                     <MiniStat label="页面" value={plugin.pages} />
                     <MiniStat label="路由" value={plugin.routes} />
                     <MiniStat label="权限" value={plugin.permissions} />
                     <MiniStat label="迁移" value={plugin.migrations} />
+                    <MiniStat label="数据表" value={plugin.database_tables || 0} />
                   </div>
                 </button>
               ))}
@@ -570,6 +687,9 @@ function PluginDetailPanel({
   }
   if (activeTab === 'migrations') {
     return <MigrationsPanel migrations={detailBundle.migrations} />
+  }
+  if (activeTab === 'database') {
+    return <DatabasePanel database={detailBundle.database} />
   }
   if (activeTab === 'configs') {
     return <ConfigsPanel configs={detailBundle.configs} schemas={detailBundle.schemas} />
@@ -725,6 +845,227 @@ function MigrationsPanel({ migrations }: { migrations: PluginMigration[] }) {
               {migration.error_message}
             </pre>
           )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DatabasePanel({ database }: { database: PluginDatabaseSnapshot }) {
+  const snapshot = normalizeDatabaseSnapshot(database)
+  const hasData = Boolean(snapshot.declaration)
+    || (snapshot.tables || []).length > 0
+    || (snapshot.columns || []).length > 0
+    || (snapshot.indexes || []).length > 0
+    || (snapshot.relations || []).length > 0
+    || (snapshot.operations || []).length > 0
+
+  if (!hasData) {
+    return <EmptyState title="暂无数据库声明" description="当前插件没有登记 database 顶层声明或插件表结构。" />
+  }
+
+  return (
+    <div className="space-y-5">
+      {snapshot.declaration && (
+        <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
+          <InfoSection
+            title="数据库声明"
+            items={[
+              ['命名空间', snapshot.declaration.namespace || '-'],
+              ['存储模式', snapshot.declaration.storage_mode || '-'],
+              ['插件版本', snapshot.declaration.plugin_version || '-'],
+              ['表数量', String(snapshot.declaration.table_count || 0)],
+              ['状态', formatStateValue(snapshot.declaration.status || '-')],
+              ['更新时间', formatDateTime(snapshot.declaration.updated_at)],
+            ]}
+          />
+          <JsonBlock title="Database Extensions" value={parseJSON(snapshot.declaration.extensions_json || '')} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <CapabilityCard label="表" value={snapshot.tables?.length || 0} />
+        <CapabilityCard label="字段" value={snapshot.columns?.length || 0} />
+        <CapabilityCard label="索引" value={snapshot.indexes?.length || 0} />
+        <CapabilityCard label="关系" value={snapshot.relations?.length || 0} />
+        <CapabilityCard label="操作" value={snapshot.operations?.length || 0} />
+      </div>
+
+      {(snapshot.tables || []).length > 0 ? (
+        <div className="space-y-4">
+          <h4 className="font-medium text-dark-100">插件表结构</h4>
+          {(snapshot.tables || []).map((table) => {
+            const columns = (snapshot.columns || []).filter((column) => column.table_id === table.id)
+            const indexes = (snapshot.indexes || []).filter((index) => index.table_id === table.id)
+            const relations = (snapshot.relations || []).filter((relation) => relation.table_id === table.id)
+
+            return (
+              <div key={table.id} className="rounded-xl border border-dark-700/70 bg-dark-800/40 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-dark-100">{table.table_key}</div>
+                    <div className="mt-1 break-all text-xs text-dark-500">{table.physical_table_name}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="info">{table.table_kind || 'table'}</Badge>
+                    <Badge variant={getMigrationVariant(table.status)}>{formatStateValue(table.status)}</Badge>
+                    <Badge variant={table.sensitivity === 'secret' || table.sensitivity === 'sensitive' ? 'warning' : 'default'}>
+                      {table.sensitivity || 'internal'}
+                    </Badge>
+                  </div>
+                </div>
+
+                {table.description && <p className="mt-3 text-sm text-dark-400">{table.description}</p>}
+
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  <InfoSection
+                    title="表策略"
+                    items={[
+                      ['Schema', table.schema_version || '-'],
+                      ['校验值', table.schema_checksum || '-'],
+                      ['创建策略', table.create_policy || '-'],
+                      ['删除策略', table.drop_policy || '-'],
+                      ['备份策略', table.backup_policy || '-'],
+                      ['保留策略', table.retention_policy || '-'],
+                    ]}
+                  />
+                  <JsonBlock title="Table Extensions" value={parseJSON(table.extensions_json)} />
+                </div>
+
+                <DatabaseColumns columns={columns} />
+                <DatabaseIndexes indexes={indexes} />
+                <DatabaseRelations relations={relations} />
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <EmptyState title="暂无插件表" description="当前插件只登记了 database 顶层声明，尚未声明具体数据表。" />
+      )}
+
+      {(snapshot.operations || []).length > 0 && (
+        <div className="space-y-3">
+          <h4 className="font-medium text-dark-100">结构操作</h4>
+          {(snapshot.operations || []).map((operation) => (
+            <div key={operation.id} className="rounded-xl border border-dark-700/70 bg-dark-800/40 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="font-medium text-dark-100">{operation.operation_id}</div>
+                  <div className="mt-1 text-xs text-dark-500">
+                    {operation.table_key || '-'} · {operation.operation_type || '-'} · {operation.path || '-'}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={getMigrationVariant(operation.status)}>{formatStateValue(operation.status)}</Badge>
+                  <Badge variant={operation.requires_review ? 'warning' : 'default'}>
+                    {operation.requires_review ? '需复核' : '自动'}
+                  </Badge>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                <InfoLine label="插件版本" value={operation.plugin_version || '-'} />
+                <InfoLine label="Schema 校验" value={operation.schema_checksum || '-'} />
+                <InfoLine label="执行人" value={operation.executed_by || '-'} />
+                <InfoLine label="创建时间" value={formatDateTime(operation.created_at)} />
+              </div>
+              {operation.error_message && (
+                <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-red-500/10 p-3 text-xs text-red-300">
+                  {operation.error_message}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(snapshot.operations || []).length === 0 && (
+        <EmptyState title="暂无结构操作" description="当前插件没有声明需要宿主显式执行的数据库结构操作。" />
+      )}
+    </div>
+  )
+}
+
+function DatabaseColumns({ columns }: { columns: PluginDatabaseColumn[] }) {
+  if (columns.length === 0) {
+    return <div className="mt-4 rounded-lg bg-dark-900/40 p-3 text-sm text-dark-500">未声明字段。</div>
+  }
+
+  return (
+    <div className="mt-4 space-y-2">
+      <div className="text-sm font-medium text-dark-100">字段</div>
+      {columns.map((column) => (
+        <div key={column.id} className="rounded-lg bg-dark-900/40 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="break-all text-sm font-medium text-dark-200">
+              {column.column_name}
+              <span className="ml-2 text-xs font-normal text-dark-500">{column.db_type || '-'}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {column.primary_key && <Badge variant="info">主键</Badge>}
+              {column.unique_key && <Badge variant="warning">唯一</Badge>}
+              {column.indexed && <Badge variant="default">索引</Badge>}
+              {column.secret && <Badge variant="danger">敏感</Badge>}
+              {column.encrypted && <Badge variant="warning">加密</Badge>}
+              <Badge variant={column.nullable ? 'default' : 'success'}>{column.nullable ? '可空' : '必填'}</Badge>
+            </div>
+          </div>
+          <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+            <InfoLine label="字段键" value={column.column_key || '-'} />
+            <InfoLine label="逻辑类型" value={column.logical_type || '-'} />
+            <InfoLine label="引用类型" value={column.reference_type || '-'} />
+            <InfoLine label="引用目标" value={column.reference_target || '-'} />
+          </div>
+          {column.description && <p className="mt-2 text-xs text-dark-500">{column.description}</p>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DatabaseIndexes({ indexes }: { indexes: PluginDatabaseIndex[] }) {
+  if (indexes.length === 0) {
+    return <div className="mt-4 rounded-lg bg-dark-900/40 p-3 text-sm text-dark-500">未声明索引。</div>
+  }
+
+  return (
+    <div className="mt-4 space-y-2">
+      <div className="text-sm font-medium text-dark-100">索引</div>
+      {indexes.map((index) => (
+        <div key={index.id} className="rounded-lg bg-dark-900/40 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="break-all text-sm font-medium text-dark-200">{index.index_name || index.index_key}</div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={index.unique_index ? 'warning' : 'default'}>{index.unique_index ? '唯一索引' : '普通索引'}</Badge>
+              <Badge variant={getMigrationVariant(index.status)}>{formatStateValue(index.status)}</Badge>
+            </div>
+          </div>
+          <div className="mt-2 text-xs text-dark-500">字段：{formatStringArray(parseJSON(index.columns_json))}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DatabaseRelations({ relations }: { relations: PluginDatabaseRelation[] }) {
+  if (relations.length === 0) {
+    return <div className="mt-4 rounded-lg bg-dark-900/40 p-3 text-sm text-dark-500">未声明关系。</div>
+  }
+
+  return (
+    <div className="mt-4 space-y-2">
+      <div className="text-sm font-medium text-dark-100">关系</div>
+      {relations.map((relation) => (
+        <div key={relation.id} className="rounded-lg bg-dark-900/40 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="break-all text-sm font-medium text-dark-200">{relation.relation_key}</div>
+            <Badge variant={relation.required ? 'warning' : 'default'}>{relation.required ? '必需' : '可选'}</Badge>
+          </div>
+          <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+            <InfoLine label="本地字段" value={relation.local_column || '-'} />
+            <InfoLine label="目标资源" value={relation.target_resource_type || '-'} />
+            <InfoLine label="目标键" value={relation.target_key || '-'} />
+            <InfoLine label="删除策略" value={relation.on_delete_policy || '-'} />
+          </div>
         </div>
       ))}
     </div>
@@ -990,6 +1331,27 @@ function formatStateValue(value?: string) {
   }
   if (!value) return '-'
   return labels[value.toLowerCase()] || value
+}
+
+function normalizeDatabaseSnapshot(value?: PluginDatabaseSnapshot | null): PluginDatabaseSnapshot {
+  return {
+    declaration: value?.declaration || null,
+    tables: value?.tables || [],
+    columns: value?.columns || [],
+    indexes: value?.indexes || [],
+    relations: value?.relations || [],
+    operations: value?.operations || [],
+  }
+}
+
+function formatStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(', ') || '-'
+  }
+  if (typeof value === 'string') {
+    return value || '-'
+  }
+  return '-'
 }
 
 function parseJSON(value: string) {

@@ -1,9 +1,12 @@
 package model
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"user-frontend/internal/dbschema"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -42,8 +45,11 @@ func InitConfigDB(configDir string) error {
 
 	// 配置数据库路径
 	dbPath := filepath.Join(configDir, "db-config.db")
+	shouldInit, err := dbschema.ShouldInitializeSQLite(dbPath)
+	if err != nil {
+		return err
+	}
 
-	var err error
 	ConfigDB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -51,10 +57,15 @@ func InitConfigDB(configDir string) error {
 		return err
 	}
 
-	// 按当前模型创建或同步配置表结构。
-	if err := ConfigDB.AutoMigrate(&DBConfigDB{}); err != nil {
-		return err
+	if shouldInit {
+		if _, err := dbschema.ApplyEmbeddedBootstrapSchema(ConfigDB, "runtime"); err != nil {
+			return err
+		}
 	}
 
+	// 已存在配置库只校验当前基线，不执行旧库兼容迁移。
+	if err := dbschema.ValidateBootstrapSchema(ConfigDB); err != nil {
+		return fmt.Errorf("%w；请删除配置数据库文件后重启: %s", err, dbPath)
+	}
 	return nil
 }

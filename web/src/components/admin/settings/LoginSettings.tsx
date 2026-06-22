@@ -287,7 +287,7 @@ export function LoginSettings({ state }: { state: SettingsState }) {
 
             <SettingRow
               action={
-                <Button variant="secondary" size="sm" onClick={openUserAdvancedModal}>
+                <Button variant="primary" size="sm" onClick={openUserAdvancedModal}>
                   <i className="fas fa-sliders-h" /> 高级
                 </Button>
               }

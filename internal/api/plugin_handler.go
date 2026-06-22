@@ -103,6 +103,25 @@ func AdminGetPluginConfigs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "configs": configs})
 }
 
+// AdminGetPluginDatabaseTables 获取插件数据库治理声明。
+func AdminGetPluginDatabaseTables(c *gin.Context) {
+	if PluginSvc == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "插件服务未初始化"})
+		return
+	}
+	pluginID := c.Param("id")
+	database, ok := PluginSvc.GetPluginDatabaseSnapshot(pluginID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "插件数据库声明不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"database": database,
+		"tables":   database.Tables,
+	})
+}
+
 // AdminEnablePlugin 启用插件治理状态。
 func AdminEnablePlugin(c *gin.Context) {
 	if PluginSvc == nil {

@@ -5,7 +5,6 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"user-frontend/internal/config"
 	"user-frontend/internal/model"
@@ -33,6 +32,7 @@ type SystemConfig struct {
 	EnableCaptcha                bool     `json:"enable_captcha"`
 	AdminUsername                string   `json:"admin_username"`
 	AdminPassword                string   `json:"admin_password"`
+	AdminPasswordInitialized     bool     `json:"admin_password_initialized"`
 	Enable2FA                    bool     `json:"enable_2fa"`
 	TOTPSecret                   string   `json:"totp_secret"`
 	EnableSessionTimeout         bool     `json:"enable_session_timeout"`
@@ -59,6 +59,7 @@ func (s *ConfigService) GetSystemConfig() (*SystemConfig, error) {
 			EnableCaptcha:                globalCfg.EnableCaptcha,
 			AdminUsername:                getStringOrDefault(globalCfg.AdminUsername, "admin"),
 			AdminPassword:                getStringOrDefault(globalCfg.AdminPassword, "admin123"),
+			AdminPasswordInitialized:     globalCfg.AdminPasswordInitialized,
 			Enable2FA:                    globalCfg.Enable2FA,
 			TOTPSecret:                   globalCfg.TOTPSecret,
 			EnableSessionTimeout:         globalCfg.EnableSessionTimeout,
@@ -84,6 +85,7 @@ func (s *ConfigService) GetSystemConfig() (*SystemConfig, error) {
 			EnableCaptcha:                globalCfg.EnableCaptcha,
 			AdminUsername:                getStringOrDefault(globalCfg.AdminUsername, "admin"),
 			AdminPassword:                getStringOrDefault(globalCfg.AdminPassword, "admin123"),
+			AdminPasswordInitialized:     globalCfg.AdminPasswordInitialized,
 			Enable2FA:                    globalCfg.Enable2FA,
 			TOTPSecret:                   globalCfg.TOTPSecret,
 			EnableSessionTimeout:         globalCfg.EnableSessionTimeout,
@@ -112,6 +114,7 @@ func (s *ConfigService) GetSystemConfig() (*SystemConfig, error) {
 		EnableCaptcha:                dbConfig.EnableCaptcha,
 		AdminUsername:                dbConfig.AdminUsername,
 		AdminPassword:                dbConfig.AdminPassword,
+		AdminPasswordInitialized:     dbConfig.AdminPasswordInitialized,
 		Enable2FA:                    dbConfig.Enable2FA,
 		TOTPSecret:                   dbConfig.TOTPSecret,
 		EnableSessionTimeout:         dbConfig.EnableSessionTimeout,
@@ -148,6 +151,7 @@ func (s *ConfigService) SaveSystemConfig(cfg *SystemConfig) error {
 		EnableCaptcha:                cfg.EnableCaptcha,
 		AdminUsername:                cfg.AdminUsername,
 		AdminPassword:                cfg.AdminPassword,
+		AdminPasswordInitialized:     cfg.AdminPasswordInitialized,
 		Enable2FA:                    cfg.Enable2FA,
 		TOTPSecret:                   cfg.TOTPSecret,
 		EnableSessionTimeout:         cfg.EnableSessionTimeout,
@@ -176,6 +180,7 @@ func (s *ConfigService) SaveSystemConfig(cfg *SystemConfig) error {
 			KeyFile:                      config.GlobalConfig.ServerConfig.KeyFile,
 			AdminUsername:                cfg.AdminUsername,
 			AdminPassword:                cfg.AdminPassword,
+			AdminPasswordInitialized:     cfg.AdminPasswordInitialized,
 			AdminSuffix:                  cfg.AdminSuffix,
 			SystemTitle:                  cfg.SystemTitle,
 			EnableLogin:                  cfg.EnableLogin,
@@ -228,6 +233,7 @@ func (s *ConfigService) UpdateSecuritySettings(enableLogin bool, adminUsername, 
 	}
 	if adminPassword != "" {
 		cfg.AdminPassword = adminPassword
+		cfg.AdminPasswordInitialized = true
 	}
 	cfg.Enable2FA = enable2FA
 	cfg.TOTPSecret = totpSecret
@@ -269,11 +275,6 @@ func (s *ConfigService) IsIPInWhitelist(ip string) bool {
 	return false
 }
 
-func isInitialAdminPassword(password string) bool {
-	password = strings.TrimSpace(password)
-	return password == "" || password == "admin123"
-}
-
 func normalizeSystemConfig(cfg *SystemConfig) *SystemConfig {
 	if cfg == nil {
 		cfg = &SystemConfig{}
@@ -305,17 +306,16 @@ func (s *ConfigService) NeedsInitialSetup() bool {
 			// 数据库没有配置记录，需要初始化
 			return true
 		}
-		// 检查数据库中的密码是否为默认密码
-		return isInitialAdminPassword(dbConfig.AdminPassword)
+		return !dbConfig.AdminPasswordInitialized
 	}
 
 	// repo 未初始化，检查全局配置
 	cfg := config.GlobalConfig.ServerConfig
-	return isInitialAdminPassword(cfg.AdminPassword)
+	return !cfg.AdminPasswordInitialized
 }
 
 // SetInitialPassword 设置初始管理员密码
-// 只有在密码为默认值时才允许设置
+// 只有在初始密码尚未完成用户设置时才允许设置。
 func (s *ConfigService) SetInitialPassword(newPassword string) error {
 	if !s.NeedsInitialSetup() {
 		return fmt.Errorf("初始密码已设置，无法重复设置")
@@ -335,6 +335,7 @@ func (s *ConfigService) SetInitialPassword(newPassword string) error {
 			EnableCaptcha:            true,
 			AdminUsername:            "admin",
 			AdminPassword:            newPassword,
+			AdminPasswordInitialized: true,
 			Enable2FA:                false,
 			EnableSessionTimeout:     true,
 			SessionTimeout:           60,
@@ -349,6 +350,7 @@ func (s *ConfigService) SetInitialPassword(newPassword string) error {
 	} else {
 		cfg = normalizeSystemConfig(cfg)
 		cfg.AdminPassword = newPassword
+		cfg.AdminPasswordInitialized = true
 	}
 
 	if err := s.SaveSystemConfig(cfg); err != nil {

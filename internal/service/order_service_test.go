@@ -1,4 +1,4 @@
-package service
+package service_test
 
 import (
 	"testing"
@@ -166,7 +166,7 @@ func TestOrderService_CreateOrderWithRemark(t *testing.T) {
 
 	remark := "这是测试备注"
 	order, err := services.OrderSvc.CreateOrderWithRemark(
-		testUser.ID, "remarkuser", testProduct.ID, "127.0.0.1", false, remark,
+		testUser.ID, "remarkuser", testProduct.ID, "127.0.0.1", remark,
 	)
 	test.AssertNoError(t, err, "创建带备注订单")
 	test.AssertNotNil(t, order, "订单对象")
@@ -179,7 +179,7 @@ func TestOrderService_OrderStatus(t *testing.T) {
 	defer cleanup()
 
 	testUser := test.CreateTestUser(t, services, "statususer", "status@example.com", "password123")
-	
+
 	// 创建一个手动卡密类型的商品用于测试
 	product := &model.Product{
 		Name:         "手动卡密商品",

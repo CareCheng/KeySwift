@@ -81,6 +81,7 @@ func AdminSaveSettings(c *gin.Context) {
 			EnableCaptcha:                config.GlobalConfig.ServerConfig.EnableCaptcha,
 			AdminUsername:                config.GlobalConfig.ServerConfig.AdminUsername,
 			AdminPassword:                config.GlobalConfig.ServerConfig.AdminPassword,
+			AdminPasswordInitialized:     config.GlobalConfig.ServerConfig.AdminPasswordInitialized,
 			Enable2FA:                    config.GlobalConfig.ServerConfig.Enable2FA,
 			TOTPSecret:                   config.GlobalConfig.ServerConfig.TOTPSecret,
 			EnableSessionTimeout:         config.GlobalConfig.ServerConfig.EnableSessionTimeout,
@@ -171,6 +172,7 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 			EnableCaptcha:            true,
 			AdminUsername:            "admin",
 			AdminPassword:            "admin123",
+			AdminPasswordInitialized: config.GlobalConfig.ServerConfig.AdminPasswordInitialized,
 			Enable2FA:                false,
 			EnableSessionTimeout:     true,
 			SessionTimeout:           60,
@@ -202,6 +204,7 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 	}
 	if req.AdminPassword != "" {
 		sysCfg.AdminPassword = req.AdminPassword
+		sysCfg.AdminPasswordInitialized = true
 	}
 	sysCfg.Enable2FA = req.EnableLogin && req.Enable2FA
 	sysCfg.TOTPSecret = req.TOTPSecret
@@ -225,6 +228,7 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 	config.GlobalConfig.ServerConfig.AdminUsername = sysCfg.AdminUsername
 	if req.AdminPassword != "" {
 		config.GlobalConfig.ServerConfig.AdminPassword = sysCfg.AdminPassword
+		config.GlobalConfig.ServerConfig.AdminPasswordInitialized = sysCfg.AdminPasswordInitialized
 	}
 	config.GlobalConfig.ServerConfig.Enable2FA = sysCfg.Enable2FA
 	config.GlobalConfig.ServerConfig.TOTPSecret = sysCfg.TOTPSecret

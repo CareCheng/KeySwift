@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"user-frontend/internal/config"
+	"user-frontend/internal/dbschema"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
@@ -21,6 +22,7 @@ var DBConnected bool
 
 func InitDB(cfg *config.DBConfig) error {
 	var dialector gorm.Dialector
+	shouldInitSQLite := false
 
 	switch cfg.Type {
 	case "postgres":
@@ -31,6 +33,12 @@ func InitDB(cfg *config.DBConfig) error {
 		dir := filepath.Dir(cfg.Database)
 		if dir != "." && dir != "" {
 			os.MkdirAll(dir, 0755)
+		}
+		var err error
+		shouldInitSQLite, err = dbschema.ShouldInitializeSQLite(cfg.Database)
+		if err != nil {
+			DBConnected = false
+			return err
 		}
 		dialector = sqlite.Open(cfg.Database)
 	case "mysql":
@@ -60,37 +68,20 @@ func InitDB(cfg *config.DBConfig) error {
 		return err
 	}
 
-	// 自动创建当前核心表（OperationLog 已改为文件存储，不再使用数据库）
-	err = DB.AutoMigrate(
-		&User{},
-		&Order{},
-		&Product{},
-		&SystemSetting{},
-		&EmailVerifyCode{},
-		&EmailConfigDB{},
-		&SystemConfigDB{},
-		&LoginAttempt{},
-		&ProductCategory{},
-		&UserSession{},
-		&AdminSession{},
-		&LoginFailureRecord{},
-		&ManualKami{},
-		&AdminRole{},
-		&Admin{},
-		&UserBalance{},
-		&BalanceLog{},
-		&ProductImage{},
-		&PluginRegistry{},
-		&PluginArtifact{},
-		&PluginBinding{},
-		&PluginConfig{},
-		&PluginEventLog{},
-		&PluginJob{},
-		&PluginMigration{},
-	)
-	if err != nil {
+	if cfg.Type == "sqlite" && shouldInitSQLite {
+		if _, err := dbschema.ApplyEmbeddedMainSchema(DB, "runtime"); err != nil {
+			DBConnected = false
+			return err
+		}
+	}
+
+	// 已存在主库只校验当前基线，不执行旧库兼容迁移。
+	if err := dbschema.ValidateMainSchema(DB); err != nil {
 		DBConnected = false
-		return err
+		if cfg.Type == "sqlite" {
+			return fmt.Errorf("%w；请删除主业务数据库文件后重启: %s", err, cfg.Database)
+		}
+		return fmt.Errorf("%w；请使用当前基线重新初始化主业务数据库", err)
 	}
 
 	sqlDB, err := DB.DB()

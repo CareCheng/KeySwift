@@ -45,6 +45,7 @@ type ServerConfig struct {
 	KeyFile                      string `json:"key_file"`
 	AdminUsername                string `json:"admin_username"`
 	AdminPassword                string `json:"admin_password"`
+	AdminPasswordInitialized     bool   `json:"admin_password_initialized"`
 	AdminSuffix                  string `json:"admin_suffix"`
 	EnableLogin                  bool   `json:"enable_login"`
 	EnableCaptcha                bool   `json:"enable_captcha"`
@@ -89,6 +90,7 @@ func (c *Config) LoadAll() error {
 		Port:                         8080,
 		AdminUsername:                "admin",
 		AdminPassword:                "admin123",
+		AdminPasswordInitialized:     false,
 		AdminSuffix:                  "manage",
 		EnableLogin:                  true,
 		EnableCaptcha:                true,

@@ -25,6 +25,16 @@ type PluginService struct {
 	registry   *pluginapi.MemoryRegistry
 }
 
+// PluginDatabaseSnapshot 是后台读取插件数据库治理状态的完整快照。
+type PluginDatabaseSnapshot struct {
+	Declaration *model.PluginDatabaseDeclaration `json:"declaration"`
+	Tables      []model.PluginDatabaseTable      `json:"tables"`
+	Columns     []model.PluginDatabaseColumn     `json:"columns"`
+	Indexes     []model.PluginDatabaseIndex      `json:"indexes"`
+	Relations   []model.PluginDatabaseRelation   `json:"relations"`
+	Operations  []model.PluginDatabaseOperation  `json:"operations"`
+}
+
 // NewPluginService 创建插件服务。
 func NewPluginService(repo *repository.Repository, pluginRoot string) *PluginService {
 	return &PluginService{
@@ -79,6 +89,7 @@ func (s *PluginService) Refresh(ctx context.Context) ([]pluginapi.DiscoveryResul
 		s.persistManifest(result)
 		s.persistBindings(manifest)
 		s.persistMigrations(manifest)
+		s.persistDatabaseDeclarations(manifest)
 	}
 
 	return results, nil
@@ -157,6 +168,7 @@ func (s *PluginService) ListPlugins() []map[string]any {
 			"events":           len(manifest.Backend.Events),
 			"jobs":             len(manifest.Backend.Jobs),
 			"migrations":       len(manifest.Backend.Migrations),
+			"database_tables":  len(manifest.Database.Tables),
 		})
 	}
 	return items
@@ -246,6 +258,58 @@ func (s *PluginService) GetPluginConfigs(pluginID string) ([]model.PluginConfig,
 		return nil, false
 	}
 	return items, true
+}
+
+// GetPluginDatabaseTables 返回插件数据库表声明。
+func (s *PluginService) GetPluginDatabaseTables(pluginID string) ([]model.PluginDatabaseTable, bool) {
+	if s.repo == nil {
+		return nil, false
+	}
+	items, err := s.repo.ListPluginDatabaseTables(pluginID)
+	if err != nil {
+		return nil, false
+	}
+	return items, true
+}
+
+// GetPluginDatabaseSnapshot 返回插件数据库声明和治理明细。
+func (s *PluginService) GetPluginDatabaseSnapshot(pluginID string) (PluginDatabaseSnapshot, bool) {
+	var snapshot PluginDatabaseSnapshot
+	if s.repo == nil {
+		return snapshot, false
+	}
+
+	if declaration, err := s.repo.GetPluginDatabaseDeclaration(pluginID); err == nil {
+		snapshot.Declaration = declaration
+	}
+
+	tables, err := s.repo.ListPluginDatabaseTables(pluginID)
+	if err != nil {
+		return snapshot, false
+	}
+	columns, err := s.repo.ListPluginDatabaseColumns(pluginID)
+	if err != nil {
+		return snapshot, false
+	}
+	indexes, err := s.repo.ListPluginDatabaseIndexes(pluginID)
+	if err != nil {
+		return snapshot, false
+	}
+	relations, err := s.repo.ListPluginDatabaseRelations(pluginID)
+	if err != nil {
+		return snapshot, false
+	}
+	operations, err := s.repo.ListPluginDatabaseOperations(pluginID)
+	if err != nil {
+		return snapshot, false
+	}
+
+	snapshot.Tables = tables
+	snapshot.Columns = columns
+	snapshot.Indexes = indexes
+	snapshot.Relations = relations
+	snapshot.Operations = operations
+	return snapshot, true
 }
 
 // EnablePlugin 更新插件治理状态为已启用。
@@ -484,6 +548,114 @@ func (s *PluginService) persistMigrations(manifest pluginapi.Manifest) {
 	}
 }
 
+func (s *PluginService) persistDatabaseDeclarations(manifest pluginapi.Manifest) {
+	if s.repo == nil {
+		return
+	}
+	_ = s.repo.DeletePluginDatabaseDeclarations(manifest.ID)
+	if strings.TrimSpace(manifest.Database.Namespace) == "" && len(manifest.Database.Tables) == 0 {
+		return
+	}
+	_ = s.repo.UpsertPluginDatabaseDeclaration(&model.PluginDatabaseDeclaration{
+		PluginID:       manifest.ID,
+		PluginVersion:  manifest.Version,
+		Namespace:      manifest.Database.Namespace,
+		StorageMode:    defaultString(manifest.Database.StorageMode, "host-main-db"),
+		TableCount:     len(manifest.Database.Tables),
+		Status:         "declared",
+		ExtensionsJSON: jsonString(manifest.Database.Extensions),
+	})
+	for _, tableDeclaration := range manifest.Database.Tables {
+		table := &model.PluginDatabaseTable{
+			PluginID:          manifest.ID,
+			PluginVersion:     manifest.Version,
+			Namespace:         manifest.Database.Namespace,
+			TableKey:          tableDeclaration.TableKey,
+			PhysicalTableName: tableDeclaration.PhysicalName,
+			TableKind:         tableDeclaration.TableKind,
+			SchemaVersion:     tableDeclaration.SchemaVersion,
+			SchemaChecksum:    tableDeclaration.SchemaChecksum,
+			Status:            "declared",
+			Sensitivity:       defaultString(tableDeclaration.Sensitivity, "internal"),
+			CreatePolicy:      defaultString(tableDeclaration.CreatePolicy, "on_enable"),
+			DropPolicy:        defaultString(tableDeclaration.DropPolicy, "manual_only"),
+			BackupPolicy:      defaultString(tableDeclaration.BackupPolicy, "include"),
+			RetentionPolicy:   tableDeclaration.RetentionPolicy,
+			Description:       tableDeclaration.Description,
+			ExtensionsJSON:    jsonString(tableDeclaration.Extensions),
+		}
+		if err := s.repo.CreatePluginDatabaseTable(table); err != nil {
+			continue
+		}
+		for _, columnDeclaration := range tableDeclaration.Columns {
+			_ = s.repo.CreatePluginDatabaseColumn(&model.PluginDatabaseColumn{
+				PluginID:         manifest.ID,
+				TableID:          table.ID,
+				ColumnKey:        columnDeclaration.ColumnKey,
+				ColumnName:       columnDeclaration.ColumnName,
+				DBType:           columnDeclaration.DBType,
+				LogicalType:      columnDeclaration.LogicalType,
+				Nullable:         columnDeclaration.Nullable,
+				DefaultValueJSON: jsonString(columnDeclaration.DefaultValue),
+				PrimaryKey:       columnDeclaration.PrimaryKey,
+				AutoIncrement:    columnDeclaration.AutoIncrement,
+				UniqueKey:        columnDeclaration.Unique,
+				Indexed:          columnDeclaration.Indexed,
+				Encrypted:        columnDeclaration.Encrypted,
+				Secret:           columnDeclaration.Secret,
+				ReferenceType:    columnDeclaration.ReferenceType,
+				ReferenceTarget:  columnDeclaration.ReferenceTarget,
+				Description:      columnDeclaration.Description,
+				ExtensionsJSON:   jsonString(columnDeclaration.Extensions),
+			})
+		}
+		for _, indexDeclaration := range tableDeclaration.Indexes {
+			_ = s.repo.CreatePluginDatabaseIndex(&model.PluginDatabaseIndex{
+				PluginID:       manifest.ID,
+				TableID:        table.ID,
+				IndexKey:       indexDeclaration.IndexKey,
+				IndexName:      indexDeclaration.IndexName,
+				ColumnsJSON:    jsonString(indexDeclaration.Columns),
+				UniqueIndex:    indexDeclaration.Unique,
+				Status:         "declared",
+				ExtensionsJSON: jsonString(indexDeclaration.Extensions),
+			})
+		}
+		for _, relationDeclaration := range tableDeclaration.Relations {
+			_ = s.repo.CreatePluginDatabaseRelation(&model.PluginDatabaseRelation{
+				PluginID:           manifest.ID,
+				TableID:            table.ID,
+				RelationKey:        relationDeclaration.RelationKey,
+				LocalColumn:        relationDeclaration.LocalColumn,
+				TargetResourceType: relationDeclaration.TargetResourceType,
+				TargetKey:          relationDeclaration.TargetKey,
+				RelationType:       defaultString(relationDeclaration.RelationType, "many_to_one"),
+				Required:           relationDeclaration.Required,
+				OnDeletePolicy:     defaultString(relationDeclaration.OnDeletePolicy, "restrict"),
+				ExtensionsJSON:     jsonString(relationDeclaration.Extensions),
+			})
+		}
+		for _, operationDeclaration := range tableDeclaration.Operations {
+			operationID := operationDeclaration.OperationID
+			if operationID == "" {
+				operationID = manifest.ID + ":" + tableDeclaration.TableKey + ":" + operationDeclaration.OperationType
+			}
+			_ = s.repo.UpsertPluginDatabaseOperation(&model.PluginDatabaseOperation{
+				OperationID:    operationID,
+				PluginID:       manifest.ID,
+				PluginVersion:  manifest.Version,
+				TableKey:       tableDeclaration.TableKey,
+				OperationType:  operationDeclaration.OperationType,
+				Path:           operationDeclaration.Path,
+				RequiresReview: operationDeclaration.RequiresReview,
+				Status:         "declared",
+				SchemaChecksum: operationDeclaration.Checksum,
+				ExtensionsJSON: jsonString(operationDeclaration.Extensions),
+			})
+		}
+	}
+}
+
 func buildInstallID(manifest pluginapi.Manifest) string {
 	return manifest.ID + ":" + manifest.Version
 }
@@ -507,6 +679,24 @@ func firstString(items []string) string {
 		return ""
 	}
 	return items[0]
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func jsonString(value any) string {
+	if value == nil {
+		return ""
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // DefaultPluginRoot 返回程序标准插件目录。

@@ -7,8 +7,15 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+)
+
+var (
+	pluginDBNamespacePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{2,119}$`)
+	pluginDBTablePattern     = regexp.MustCompile(`^plugin_[a-z0-9_]+_[a-z][a-z0-9_]*$`)
+	pluginDBColumnPattern    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,119}$`)
 )
 
 // DiscoveryResult 是一次插件发现的结果。
@@ -160,7 +167,63 @@ func ValidateManifest(manifest Manifest, releaseRoot string) []string {
 	if _, err := os.Stat(filepath.Join(releaseRoot, checksumFile)); err != nil {
 		errs = append(errs, "缺少 checksums.json")
 	}
+	errs = append(errs, validateDatabaseDeclaration(manifest)...)
 
+	return errs
+}
+
+func validateDatabaseDeclaration(manifest Manifest) []string {
+	database := manifest.Database
+	if len(database.Tables) == 0 && strings.TrimSpace(database.Namespace) == "" {
+		return nil
+	}
+
+	var errs []string
+	if !pluginDBNamespacePattern.MatchString(database.Namespace) {
+		errs = append(errs, "插件数据库 namespace 不合法")
+	}
+	if database.StorageMode != "host-main-db" {
+		errs = append(errs, "插件数据库 storageMode 当前必须为 host-main-db")
+	}
+	tableKeys := map[string]bool{}
+	physicalNames := map[string]bool{}
+	for _, table := range database.Tables {
+		if strings.TrimSpace(table.TableKey) == "" {
+			errs = append(errs, "插件数据库表缺少 tableKey")
+		}
+		if tableKeys[table.TableKey] {
+			errs = append(errs, "插件数据库 tableKey 重复: "+table.TableKey)
+		}
+		tableKeys[table.TableKey] = true
+		if !pluginDBTablePattern.MatchString(table.PhysicalName) {
+			errs = append(errs, "插件数据库物理表名不合法: "+table.PhysicalName)
+		}
+		expectedPrefix := "plugin_" + database.Namespace + "_"
+		if !strings.HasPrefix(table.PhysicalName, expectedPrefix) {
+			errs = append(errs, "插件数据库表名必须以 "+expectedPrefix+" 开头")
+		}
+		if physicalNames[table.PhysicalName] {
+			errs = append(errs, "插件数据库物理表名重复: "+table.PhysicalName)
+		}
+		physicalNames[table.PhysicalName] = true
+		if strings.TrimSpace(table.TableKind) == "" {
+			errs = append(errs, "插件数据库表缺少 tableKind: "+table.TableKey)
+		}
+		if strings.TrimSpace(table.SchemaVersion) == "" {
+			errs = append(errs, "插件数据库表缺少 schemaVersion: "+table.TableKey)
+		}
+		for _, column := range table.Columns {
+			if !pluginDBColumnPattern.MatchString(column.ColumnName) {
+				errs = append(errs, "插件数据库字段名不合法: "+table.TableKey+"."+column.ColumnName)
+			}
+			if strings.TrimSpace(column.DBType) == "" {
+				errs = append(errs, "插件数据库字段缺少 dbType: "+table.TableKey+"."+column.ColumnName)
+			}
+			if strings.TrimSpace(column.Description) == "" {
+				errs = append(errs, "插件数据库字段缺少 description: "+table.TableKey+"."+column.ColumnName)
+			}
+		}
+	}
 	return errs
 }
 

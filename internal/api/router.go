@@ -297,6 +297,7 @@ func registerAdminPluginRoutes(adminAPI *gin.RouterGroup) {
 	adminAPI.GET("/plugin/:id/bindings", PermissionRequired("plugin:view"), AdminGetPluginBindings)
 	adminAPI.GET("/plugin/:id/migrations", PermissionRequired("plugin:view"), AdminGetPluginMigrations)
 	adminAPI.GET("/plugin/:id/configs", PermissionRequired("plugin:view"), AdminGetPluginConfigs)
+	adminAPI.GET("/plugin/:id/database", PermissionRequired("plugin:view"), AdminGetPluginDatabaseTables)
 	adminAPI.POST("/plugin/:id/enable", PermissionRequired("plugin:manage"), AdminEnablePlugin)
 	adminAPI.POST("/plugin/:id/disable", PermissionRequired("plugin:manage"), AdminDisablePlugin)
 }

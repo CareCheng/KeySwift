@@ -115,6 +115,7 @@ func loadSystemConfig(cfg *config.Config) {
 		if sysCfg.AdminPassword != "" {
 			cfg.ServerConfig.AdminPassword = sysCfg.AdminPassword
 		}
+		cfg.ServerConfig.AdminPasswordInitialized = sysCfg.AdminPasswordInitialized
 		cfg.ServerConfig.Enable2FA = sysCfg.Enable2FA
 		cfg.ServerConfig.TOTPSecret = sysCfg.TOTPSecret
 		cfg.ServerConfig.EnableSessionTimeout = sysCfg.EnableSessionTimeout

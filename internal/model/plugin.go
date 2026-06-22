@@ -116,6 +116,7 @@ type PluginEventLog struct {
 type PluginJob struct {
 	ID             uint       `gorm:"primaryKey" json:"id"`
 	JobID          string     `gorm:"size:120;uniqueIndex" json:"job_id"`
+	OwnerPluginID  string     `gorm:"size:120;index" json:"owner_plugin_id"`
 	JobType        string     `gorm:"size:120;index" json:"job_type"`
 	ResourceType   string     `gorm:"size:80;index" json:"resource_type"`
 	ResourceID     string     `gorm:"size:120;index" json:"resource_id"`
@@ -133,7 +134,7 @@ type PluginJob struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-// PluginMigration 记录插件迁移声明和执行状态。
+// PluginMigration 记录插件结构操作声明和执行状态。
 type PluginMigration struct {
 	ID             uint       `gorm:"primaryKey" json:"id"`
 	PluginID       string     `gorm:"size:120;index" json:"plugin_id"`
@@ -148,6 +149,124 @@ type PluginMigration struct {
 	ExtensionsJSON string     `gorm:"type:text" json:"extensions_json"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// PluginDatabaseDeclaration 记录插件 manifest 的 database 顶层声明。
+// 插件数据库接入规范见 Program/docs/Plugin_Development_Manual_CN/03-database-development.md。
+type PluginDatabaseDeclaration struct {
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	PluginID       string    `gorm:"size:120;uniqueIndex" json:"plugin_id"`
+	PluginVersion  string    `gorm:"size:50" json:"plugin_version"`
+	Namespace      string    `gorm:"size:120;index" json:"namespace"`
+	StorageMode    string    `gorm:"size:80;default:host-main-db" json:"storage_mode"`
+	TableCount     int       `gorm:"default:0" json:"table_count"`
+	Status         string    `gorm:"size:50;default:declared;index" json:"status"`
+	ExtensionsJSON string    `gorm:"type:text" json:"extensions_json"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// PluginDatabaseTable 记录插件 manifest 声明的数据库表。
+// 插件数据库接入规范见 Program/docs/Plugin_Development_Manual_CN/03-database-development.md。
+type PluginDatabaseTable struct {
+	ID                uint       `gorm:"primaryKey" json:"id"`
+	PluginID          string     `gorm:"size:120;index;uniqueIndex:idx_plugin_table_key" json:"plugin_id"`
+	PluginVersion     string     `gorm:"size:50" json:"plugin_version"`
+	Namespace         string     `gorm:"size:120;index" json:"namespace"`
+	TableKey          string     `gorm:"size:120;uniqueIndex:idx_plugin_table_key" json:"table_key"`
+	PhysicalTableName string     `gorm:"size:180;uniqueIndex" json:"physical_table_name"`
+	TableKind         string     `gorm:"size:50;index" json:"table_kind"`
+	SchemaVersion     string     `gorm:"size:50" json:"schema_version"`
+	SchemaChecksum    string     `gorm:"size:128" json:"schema_checksum"`
+	Status            string     `gorm:"size:50;default:declared;index" json:"status"`
+	Sensitivity       string     `gorm:"size:50;default:internal" json:"sensitivity"`
+	CreatePolicy      string     `gorm:"size:50;default:on_enable" json:"create_policy"`
+	DropPolicy        string     `gorm:"size:50;default:manual_only" json:"drop_policy"`
+	BackupPolicy      string     `gorm:"size:50;default:include" json:"backup_policy"`
+	RetentionPolicy   string     `gorm:"size:100" json:"retention_policy"`
+	Description       string     `gorm:"type:text" json:"description"`
+	LastAppliedAt     *time.Time `json:"last_applied_at"`
+	ExtensionsJSON    string     `gorm:"type:text" json:"extensions_json"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+// PluginDatabaseColumn 记录插件表字段白名单。
+type PluginDatabaseColumn struct {
+	ID               uint      `gorm:"primaryKey" json:"id"`
+	PluginID         string    `gorm:"size:120;index" json:"plugin_id"`
+	TableID          uint      `gorm:"index;uniqueIndex:idx_plugin_column_name" json:"table_id"`
+	ColumnKey        string    `gorm:"size:120" json:"column_key"`
+	ColumnName       string    `gorm:"size:120;uniqueIndex:idx_plugin_column_name" json:"column_name"`
+	DBType           string    `gorm:"size:80" json:"db_type"`
+	LogicalType      string    `gorm:"size:80" json:"logical_type"`
+	Nullable         bool      `gorm:"default:false" json:"nullable"`
+	DefaultValueJSON string    `gorm:"type:text" json:"default_value_json"`
+	PrimaryKey       bool      `gorm:"default:false" json:"primary_key"`
+	AutoIncrement    bool      `gorm:"default:false" json:"auto_increment"`
+	UniqueKey        bool      `gorm:"default:false" json:"unique_key"`
+	Indexed          bool      `gorm:"default:false" json:"indexed"`
+	Encrypted        bool      `gorm:"default:false" json:"encrypted"`
+	Secret           bool      `gorm:"default:false" json:"secret"`
+	ReferenceType    string    `gorm:"size:80" json:"reference_type"`
+	ReferenceTarget  string    `gorm:"size:180" json:"reference_target"`
+	Description      string    `gorm:"type:text" json:"description"`
+	ExtensionsJSON   string    `gorm:"type:text" json:"extensions_json"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// PluginDatabaseIndex 记录插件表索引声明。
+type PluginDatabaseIndex struct {
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	PluginID       string    `gorm:"size:120;index" json:"plugin_id"`
+	TableID        uint      `gorm:"index;uniqueIndex:idx_plugin_index_name" json:"table_id"`
+	IndexKey       string    `gorm:"size:120" json:"index_key"`
+	IndexName      string    `gorm:"size:180;uniqueIndex:idx_plugin_index_name" json:"index_name"`
+	ColumnsJSON    string    `gorm:"type:text" json:"columns_json"`
+	UniqueIndex    bool      `gorm:"default:false" json:"unique_index"`
+	Status         string    `gorm:"size:50;default:declared" json:"status"`
+	ExtensionsJSON string    `gorm:"type:text" json:"extensions_json"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// PluginDatabaseRelation 记录插件表和宿主资源之间的逻辑引用。
+type PluginDatabaseRelation struct {
+	ID                 uint      `gorm:"primaryKey" json:"id"`
+	PluginID           string    `gorm:"size:120;index" json:"plugin_id"`
+	TableID            uint      `gorm:"index;uniqueIndex:idx_plugin_relation_key" json:"table_id"`
+	RelationKey        string    `gorm:"size:120;uniqueIndex:idx_plugin_relation_key" json:"relation_key"`
+	LocalColumn        string    `gorm:"size:120" json:"local_column"`
+	TargetResourceType string    `gorm:"size:120" json:"target_resource_type"`
+	TargetKey          string    `gorm:"size:180" json:"target_key"`
+	RelationType       string    `gorm:"size:50;default:many_to_one" json:"relation_type"`
+	Required           bool      `gorm:"default:false" json:"required"`
+	OnDeletePolicy     string    `gorm:"size:50;default:restrict" json:"on_delete_policy"`
+	ExtensionsJSON     string    `gorm:"type:text" json:"extensions_json"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+}
+
+// PluginDatabaseOperation 记录插件数据库结构创建、校验和后续显式操作。
+type PluginDatabaseOperation struct {
+	ID             uint       `gorm:"primaryKey" json:"id"`
+	OperationID    string     `gorm:"size:120;uniqueIndex" json:"operation_id"`
+	PluginID       string     `gorm:"size:120;index" json:"plugin_id"`
+	PluginVersion  string     `gorm:"size:50" json:"plugin_version"`
+	TableKey       string     `gorm:"size:120" json:"table_key"`
+	OperationType  string     `gorm:"size:50" json:"operation_type"`
+	Path           string     `gorm:"size:500" json:"path"`
+	RequiresReview bool       `gorm:"default:false" json:"requires_review"`
+	Status         string     `gorm:"size:50;default:pending;index" json:"status"`
+	SchemaChecksum string     `gorm:"size:128" json:"schema_checksum"`
+	ExecutedBy     string     `gorm:"size:120" json:"executed_by"`
+	ExecutionMs    int        `gorm:"default:0" json:"execution_ms"`
+	ErrorMessage   string     `gorm:"type:text" json:"error_message"`
+	ExtensionsJSON string     `gorm:"type:text" json:"extensions_json"`
+	StartedAt      *time.Time `json:"started_at"`
+	FinishedAt     *time.Time `json:"finished_at"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 func (PluginRegistry) TableName() string {
@@ -176,4 +295,28 @@ func (PluginJob) TableName() string {
 
 func (PluginMigration) TableName() string {
 	return "plugin_migrations"
+}
+
+func (PluginDatabaseDeclaration) TableName() string {
+	return "plugin_database_declarations"
+}
+
+func (PluginDatabaseTable) TableName() string {
+	return "plugin_database_tables"
+}
+
+func (PluginDatabaseColumn) TableName() string {
+	return "plugin_database_columns"
+}
+
+func (PluginDatabaseIndex) TableName() string {
+	return "plugin_database_indexes"
+}
+
+func (PluginDatabaseRelation) TableName() string {
+	return "plugin_database_relations"
+}
+
+func (PluginDatabaseOperation) TableName() string {
+	return "plugin_database_operations"
 }

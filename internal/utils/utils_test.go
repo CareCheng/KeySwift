@@ -71,7 +71,7 @@ func TestCheckPassword(t *testing.T) {
 // TestGenerateOrderNo 测试订单号生成
 func TestGenerateOrderNo(t *testing.T) {
 	t.Run("正常订单", func(t *testing.T) {
-		orderNo := GenerateOrderNo("")
+		orderNo := GenerateOrderNo()
 
 		// 验证订单号不为空
 		if orderNo == "" {
@@ -79,7 +79,7 @@ func TestGenerateOrderNo(t *testing.T) {
 		}
 
 		// 验证唯一性（生成多个不应相同）
-		orderNo2 := GenerateOrderNo("")
+		orderNo2 := GenerateOrderNo()
 		if orderNo == orderNo2 {
 			t.Error("连续生成的订单号不应相同")
 		}
@@ -95,9 +95,9 @@ func TestGenerateLocalOrderNo(t *testing.T) {
 		t.Error("订单号不应为空")
 	}
 
-	// 验证包含LOCAL_标识
-	if !strings.HasPrefix(orderNo, "LOCAL_") {
-		t.Error("本地订单应包含LOCAL_前缀")
+	// 验证包含订单前缀
+	if !strings.HasPrefix(orderNo, "ORD_") {
+		t.Error("本地订单应包含ORD_前缀")
 	}
 
 	// 验证唯一性（生成多个不应相同）
@@ -182,7 +182,7 @@ func BenchmarkCheckPassword(b *testing.B) {
 // BenchmarkGenerateOrderNo 性能测试：订单号生成
 func BenchmarkGenerateOrderNo(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		GenerateOrderNo("")
+		GenerateOrderNo()
 	}
 }
 

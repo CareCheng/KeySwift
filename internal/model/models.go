@@ -143,6 +143,7 @@ type SystemConfigDB struct {
 	EnableCaptcha                bool      `gorm:"default:true" json:"enable_captcha"`                   // 后台登录是否要求图形验证码
 	AdminUsername                string    `gorm:"type:varchar(100)" json:"admin_username"`              // 管理员用户名
 	AdminPassword                string    `gorm:"type:varchar(255)" json:"admin_password"`              // 管理员密码
+	AdminPasswordInitialized     bool      `gorm:"default:false" json:"admin_password_initialized"`      // 初始管理员密码是否已由用户完成设置
 	Enable2FA                    bool      `gorm:"default:false" json:"enable_2fa"`                      // 后台是否启用两步验证
 	TOTPSecret                   string    `gorm:"type:varchar(100)" json:"totp_secret"`                 // 后台TOTP密钥
 	EnableSessionTimeout         bool      `gorm:"default:true" json:"enable_session_timeout"`           // 后台是否启用会话超时

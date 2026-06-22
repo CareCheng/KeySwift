@@ -58,6 +58,7 @@ type Manifest struct {
 	Permissions     []PermissionDeclaration `json:"permissions"`
 	Capabilities    Capabilities            `json:"capabilities"`
 	Backend         Backend                 `json:"backend"`
+	Database        DatabaseDeclaration     `json:"database"`
 	Frontend        Frontend                `json:"frontend"`
 	UI              UIContribution          `json:"ui"`
 	Observability   Observability           `json:"observability"`
@@ -342,6 +343,86 @@ type MigrationDeclaration struct {
 	Checksum     string       `json:"checksum"`
 	Dependencies []string     `json:"dependencies"`
 	Extensions   ExtensionMap `json:"extensions"`
+}
+
+// DatabaseDeclaration 描述插件自己的数据库表声明。
+// 宿主只接受 manifest 声明并登记后的插件表，规范见 Program/docs/Plugin_Development_Manual_CN/03-database-development.md。
+type DatabaseDeclaration struct {
+	Namespace   string                     `json:"namespace"`
+	StorageMode string                     `json:"storageMode"`
+	Tables      []DatabaseTableDeclaration `json:"tables"`
+	Extensions  ExtensionMap               `json:"extensions"`
+}
+
+// DatabaseTableDeclaration 描述插件声明的一张业务表。
+type DatabaseTableDeclaration struct {
+	TableKey        string                         `json:"tableKey"`
+	PhysicalName    string                         `json:"physicalName"`
+	TableKind       string                         `json:"tableKind"`
+	SchemaVersion   string                         `json:"schemaVersion"`
+	SchemaChecksum  string                         `json:"schemaChecksum"`
+	Description     string                         `json:"description"`
+	Sensitivity     string                         `json:"sensitivity"`
+	CreatePolicy    string                         `json:"createPolicy"`
+	DropPolicy      string                         `json:"dropPolicy"`
+	BackupPolicy    string                         `json:"backupPolicy"`
+	RetentionPolicy string                         `json:"retentionPolicy"`
+	Columns         []DatabaseColumnDeclaration    `json:"columns"`
+	Indexes         []DatabaseIndexDeclaration     `json:"indexes"`
+	Relations       []DatabaseRelationDeclaration  `json:"relations"`
+	Operations      []DatabaseOperationDeclaration `json:"operations"`
+	Extensions      ExtensionMap                   `json:"extensions"`
+}
+
+// DatabaseColumnDeclaration 描述插件表字段。
+type DatabaseColumnDeclaration struct {
+	ColumnKey       string       `json:"columnKey"`
+	ColumnName      string       `json:"columnName"`
+	DBType          string       `json:"dbType"`
+	LogicalType     string       `json:"logicalType"`
+	Nullable        bool         `json:"nullable"`
+	DefaultValue    any          `json:"defaultValue"`
+	PrimaryKey      bool         `json:"primaryKey"`
+	AutoIncrement   bool         `json:"autoIncrement"`
+	Unique          bool         `json:"unique"`
+	Indexed         bool         `json:"indexed"`
+	Encrypted       bool         `json:"encrypted"`
+	Secret          bool         `json:"secret"`
+	ReferenceType   string       `json:"referenceType"`
+	ReferenceTarget string       `json:"referenceTarget"`
+	Description     string       `json:"description"`
+	Extensions      ExtensionMap `json:"extensions"`
+}
+
+// DatabaseIndexDeclaration 描述插件表索引。
+type DatabaseIndexDeclaration struct {
+	IndexKey   string       `json:"indexKey"`
+	IndexName  string       `json:"indexName"`
+	Columns    []string     `json:"columns"`
+	Unique     bool         `json:"unique"`
+	Extensions ExtensionMap `json:"extensions"`
+}
+
+// DatabaseRelationDeclaration 描述插件表到宿主资源或插件资源的逻辑关系。
+type DatabaseRelationDeclaration struct {
+	RelationKey        string       `json:"relationKey"`
+	LocalColumn        string       `json:"localColumn"`
+	TargetResourceType string       `json:"targetResourceType"`
+	TargetKey          string       `json:"targetKey"`
+	RelationType       string       `json:"relationType"`
+	Required           bool         `json:"required"`
+	OnDeletePolicy     string       `json:"onDeletePolicy"`
+	Extensions         ExtensionMap `json:"extensions"`
+}
+
+// DatabaseOperationDeclaration 描述插件表需要宿主显式执行的结构操作。
+type DatabaseOperationDeclaration struct {
+	OperationID    string       `json:"operationId"`
+	OperationType  string       `json:"operationType"`
+	Path           string       `json:"path"`
+	Checksum       string       `json:"checksum"`
+	RequiresReview bool         `json:"requiresReview"`
+	Extensions     ExtensionMap `json:"extensions"`
 }
 
 // PageDeclaration 描述前端页面。

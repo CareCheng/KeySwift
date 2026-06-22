@@ -38,15 +38,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"user-frontend/internal/config"
+	"user-frontend/internal/dbschema"
 	"user-frontend/internal/model"
 	"user-frontend/internal/repository"
 	"user-frontend/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -67,22 +70,7 @@ func SetupTestDB(t *testing.T) (*gorm.DB, func()) {
 		t.Fatalf("无法创建测试数据库: %v", err)
 	}
 
-	// 自动迁移表结构
-	err = db.AutoMigrate(
-		&model.User{},
-		&model.Product{},
-		&model.ProductCategory{},
-		&model.Order{},
-		&model.UserBalance{},
-		&model.BalanceLog{},
-		&model.UserSession{},
-		&model.AdminSession{},
-		&model.ManualKami{},
-		&model.ProductImage{},
-	)
-	if err != nil {
-		t.Fatalf("无法迁移数据库表: %v", err)
-	}
+	applyTestSchema(t, db)
 
 	// 清理函数
 	cleanup := func() {
@@ -95,17 +83,43 @@ func SetupTestDB(t *testing.T) (*gorm.DB, func()) {
 	return db, cleanup
 }
 
+func applyTestSchema(t *testing.T, db *gorm.DB) {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("无法定位测试辅助文件")
+	}
+	schemaPath := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "database", "main", "sqlite", "schema.sql"))
+	seedPath := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "database", "main", "sqlite", "seed.sql"))
+
+	schemaSQL, _, err := dbschema.ReadSQLFile(schemaPath)
+	if err != nil {
+		t.Fatalf("无法读取测试数据库 schema: %v", err)
+	}
+	if err := dbschema.ExecSQLScript(db, schemaSQL); err != nil {
+		t.Fatalf("无法构建测试数据库 schema: %v", err)
+	}
+	seedSQL, _, err := dbschema.ReadSQLFile(seedPath)
+	if err != nil {
+		t.Fatalf("无法读取测试数据库 seed: %v", err)
+	}
+	if err := dbschema.ExecSQLScript(db, seedSQL); err != nil {
+		t.Fatalf("无法写入测试数据库 seed: %v", err)
+	}
+}
+
 // ==================== 测试服务设置 ====================
 
 // TestServices 测试服务集合
 type TestServices struct {
-	DB          *gorm.DB
-	Repo        *repository.Repository
-	UserSvc     *service.UserService
-	OrderSvc    *service.OrderService
-	ProductSvc  *service.ProductService
-	SessionSvc  *service.SessionService
-	BalanceSvc  *service.BalanceService
+	DB         *gorm.DB
+	Repo       *repository.Repository
+	UserSvc    *service.UserService
+	OrderSvc   *service.OrderService
+	ProductSvc *service.ProductService
+	SessionSvc *service.SessionService
+	BalanceSvc *service.BalanceService
 }
 
 // SetupTestServices 创建测试服务实例
@@ -126,7 +140,7 @@ func SetupTestServices(t *testing.T) (*TestServices, func()) {
 		UserSvc:    service.NewUserService(repo),
 		OrderSvc:   service.NewOrderService(repo, cfg),
 		ProductSvc: service.NewProductService(repo),
-		SessionSvc: service.NewSessionService(db),
+		SessionSvc: service.NewSessionService(repo),
 		BalanceSvc: service.NewBalanceService(repo),
 	}
 
@@ -155,6 +169,7 @@ type TestRequest struct {
 // 参数：
 //   - router: Gin 路由实例
 //   - req: 测试请求配置
+//
 // 返回：
 //   - *httptest.ResponseRecorder: 响应记录器
 func ExecuteRequest(router *gin.Engine, req TestRequest) *httptest.ResponseRecorder {
@@ -231,7 +246,7 @@ func CreateTestProduct(t *testing.T, services *TestServices, name string, price 
 
 // CreateTestOrder 创建测试订单
 func CreateTestOrder(t *testing.T, services *TestServices, userID uint, productID uint) *model.Order {
-	order, err := services.OrderSvc.CreateOrder(userID, "testuser", productID, "127.0.0.1", false)
+	order, err := services.OrderSvc.CreateOrder(userID, "testuser", productID, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("创建测试订单失败: %v", err)
 	}

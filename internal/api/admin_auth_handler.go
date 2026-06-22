@@ -24,8 +24,8 @@ func CheckInitialSetup(c *gin.Context) {
 	} else {
 		// ConfigSvc 未初始化，检查全局配置
 		cfg := config.GlobalConfig.ServerConfig
-		needsSetup = cfg.AdminPassword == "admin123" || cfg.AdminPassword == ""
-		log.Printf("[CheckInitialSetup] ConfigSvc为nil, 检查GlobalConfig, password=%s, needsSetup=%v", cfg.AdminPassword, needsSetup)
+		needsSetup = !cfg.AdminPasswordInitialized
+		log.Printf("[CheckInitialSetup] ConfigSvc为nil, 检查GlobalConfig, needsSetup=%v", needsSetup)
 	}
 
 	c.JSON(200, gin.H{
@@ -57,7 +57,7 @@ func SetInitialPassword(c *gin.Context) {
 		needsSetup = ConfigSvc.NeedsInitialSetup()
 	} else {
 		cfg := config.GlobalConfig.ServerConfig
-		needsSetup = cfg.AdminPassword == "admin123" || cfg.AdminPassword == ""
+		needsSetup = !cfg.AdminPasswordInitialized
 	}
 
 	if !needsSetup {
@@ -74,6 +74,7 @@ func SetInitialPassword(c *gin.Context) {
 	} else {
 		// 更新全局配置（内存中）
 		config.GlobalConfig.ServerConfig.AdminPassword = req.Password
+		config.GlobalConfig.ServerConfig.AdminPasswordInitialized = true
 	}
 
 	if model.DBConnected {

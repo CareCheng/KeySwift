@@ -637,7 +637,7 @@ func (r *Repository) ListPluginJobs(pluginID string) ([]model.PluginJob, error) 
 	var records []model.PluginJob
 	query := r.db.Model(&model.PluginJob{})
 	if pluginID != "" {
-		query = query.Where("extensions_json LIKE ?", "%"+pluginID+"%")
+		query = query.Where("owner_plugin_id = ?", pluginID)
 	}
 	err := query.Order("id DESC").Limit(200).Find(&records).Error
 	return records, err
@@ -661,6 +661,109 @@ func (r *Repository) ListPluginMigrations(pluginID string) ([]model.PluginMigrat
 
 func (r *Repository) DeletePluginMigrations(pluginID string) error {
 	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginMigration{}).Error
+}
+
+func (r *Repository) DeletePluginDatabaseDeclarations(pluginID string) error {
+	var tables []model.PluginDatabaseTable
+	if err := r.db.Where("plugin_id = ?", pluginID).Find(&tables).Error; err != nil {
+		return err
+	}
+	tableIDs := make([]uint, 0, len(tables))
+	for _, table := range tables {
+		tableIDs = append(tableIDs, table.ID)
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if len(tableIDs) > 0 {
+			if err := tx.Where("table_id IN ?", tableIDs).Delete(&model.PluginDatabaseRelation{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("table_id IN ?", tableIDs).Delete(&model.PluginDatabaseIndex{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("table_id IN ?", tableIDs).Delete(&model.PluginDatabaseColumn{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginDatabaseOperation{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginDatabaseTable{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginDatabaseDeclaration{}).Error
+	})
+}
+
+func (r *Repository) UpsertPluginDatabaseDeclaration(record *model.PluginDatabaseDeclaration) error {
+	var existing model.PluginDatabaseDeclaration
+	err := r.db.Where("plugin_id = ?", record.PluginID).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) GetPluginDatabaseDeclaration(pluginID string) (*model.PluginDatabaseDeclaration, error) {
+	var record model.PluginDatabaseDeclaration
+	err := r.db.Where("plugin_id = ?", pluginID).First(&record).Error
+	return &record, err
+}
+
+func (r *Repository) CreatePluginDatabaseTable(record *model.PluginDatabaseTable) error {
+	return r.db.Create(record).Error
+}
+
+func (r *Repository) CreatePluginDatabaseColumn(record *model.PluginDatabaseColumn) error {
+	return r.db.Create(record).Error
+}
+
+func (r *Repository) CreatePluginDatabaseIndex(record *model.PluginDatabaseIndex) error {
+	return r.db.Create(record).Error
+}
+
+func (r *Repository) CreatePluginDatabaseRelation(record *model.PluginDatabaseRelation) error {
+	return r.db.Create(record).Error
+}
+
+func (r *Repository) UpsertPluginDatabaseOperation(record *model.PluginDatabaseOperation) error {
+	var existing model.PluginDatabaseOperation
+	err := r.db.Where("operation_id = ?", record.OperationID).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) ListPluginDatabaseTables(pluginID string) ([]model.PluginDatabaseTable, error) {
+	var records []model.PluginDatabaseTable
+	err := r.db.Where("plugin_id = ?", pluginID).Order("table_key ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) ListPluginDatabaseColumns(pluginID string) ([]model.PluginDatabaseColumn, error) {
+	var records []model.PluginDatabaseColumn
+	err := r.db.Where("plugin_id = ?", pluginID).Order("table_id ASC, id ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) ListPluginDatabaseIndexes(pluginID string) ([]model.PluginDatabaseIndex, error) {
+	var records []model.PluginDatabaseIndex
+	err := r.db.Where("plugin_id = ?", pluginID).Order("table_id ASC, id ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) ListPluginDatabaseRelations(pluginID string) ([]model.PluginDatabaseRelation, error) {
+	var records []model.PluginDatabaseRelation
+	err := r.db.Where("plugin_id = ?", pluginID).Order("table_id ASC, id ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) ListPluginDatabaseOperations(pluginID string) ([]model.PluginDatabaseOperation, error) {
+	var records []model.PluginDatabaseOperation
+	err := r.db.Where("plugin_id = ?", pluginID).Order("id ASC").Find(&records).Error
+	return records, err
 }
 
 // ==================== 手动卡密相关操作 ====================
