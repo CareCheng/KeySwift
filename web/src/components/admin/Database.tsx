@@ -131,7 +131,7 @@ export function DatabasePage() {
 
       <Card title="🔐 数据加密密钥">
         <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-4">
-          <p className="text-blue-400 text-sm">此密钥用于加密数据库中的敏感数据。密钥在首次启动时自动生成，请妥善保管以便数据迁移。</p>
+          <p className="text-blue-400 text-sm">此密钥用于加密数据库中的敏感数据。密钥在首次启动时自动生成，请妥善保管以便更换环境或恢复数据。</p>
         </div>
         <div className="space-y-4">
           <div>
@@ -144,7 +144,7 @@ export function DatabasePage() {
               <input type="text" value={config?.encryption_key || '未生成'} readOnly className="flex-1 px-3 py-2 bg-dark-700/50 border border-dark-600 rounded-lg text-dark-400 font-mono text-sm cursor-not-allowed" />
               <Button variant="secondary" onClick={copyKey}>复制</Button>
             </div>
-            <p className="text-dark-500 text-xs mt-1">迁移数据时需要使用相同的密钥才能解密数据</p>
+            <p className="text-dark-500 text-xs mt-1">更换运行环境或恢复数据时需要使用相同的密钥才能解密数据</p>
           </div>
           <div className="pt-4 border-t border-dark-700">
             <Button variant="danger" onClick={() => setShowResetModal(true)}>

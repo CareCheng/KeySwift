@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
+import { AuthPageTransition } from '@/components/layout/AuthPageTransition'
 import { Button, Input } from '@/components/ui'
 import { apiPost } from '@/lib/api'
 import { useI18n } from '@/hooks/useI18n'
@@ -152,11 +152,7 @@ export default function ForgotPasswordPage() {
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl" />
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="relative w-full max-w-md"
-      >
+      <AuthPageTransition mode="login">
         <div className="card p-8">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-dark-100 mb-2">{t('auth.forgotTitle')}</h1>
@@ -278,7 +274,7 @@ export default function ForgotPasswordPage() {
             </Link>
           </div>
         </div>
-      </motion.div>
+      </AuthPageTransition>
     </div>
   )
 }

@@ -6,7 +6,6 @@ import { SettingsPage } from './Settings'
 import { PaymentPage } from './Payment'
 import { EmailPage } from './Email'
 import { DatabasePage } from './Database'
-import { RedisPage } from './Redis'
 
 /**
  * 系统配置页面标签配置
@@ -16,12 +15,11 @@ const TABS = [
   { id: 'payment', label: '支付配置', icon: 'fa-credit-card' },
   { id: 'email', label: '邮箱配置', icon: 'fa-envelope' },
   { id: 'database', label: '数据库配置', icon: 'fa-database' },
-  { id: 'redis', label: 'Redis缓存', icon: 'fa-server' },
 ]
 
 /**
  * 系统配置组合页面
- * 合并：基础设置、支付配置、邮箱配置、数据库配置、Redis缓存
+ * 合并：基础设置、支付配置、邮箱配置、数据库配置
  */
 export function ConfigManagePage() {
   const [activeTab, setActiveTab] = useState('settings')
@@ -37,8 +35,6 @@ export function ConfigManagePage() {
         return <EmailPage />
       case 'database':
         return <DatabasePage />
-      case 'redis':
-        return <RedisPage />
       default:
         return <SettingsPage />
     }

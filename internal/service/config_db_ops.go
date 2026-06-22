@@ -4,9 +4,7 @@ package service
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"os"
 
 	"user-frontend/internal/config"
 	"user-frontend/internal/model"
@@ -286,45 +284,4 @@ func (s *ConfigService) ensureDBConfig() {
 			fmt.Println("已创建默认数据库配置")
 		}
 	}
-}
-
-// MigrateFromJSON 从旧的JSON配置文件迁移数据库配置到SQLite
-func (s *ConfigService) MigrateFromJSON(jsonPath string) error {
-	if s.configDB == nil {
-		return fmt.Errorf("配置数据库未初始化")
-	}
-
-	data, err := os.ReadFile(jsonPath)
-	if err != nil {
-		return fmt.Errorf("读取JSON配置文件失败: %v", err)
-	}
-
-	var jsonConfig struct {
-		Type     string `json:"type"`
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		User     string `json:"user"`
-		Password string `json:"password"`
-		Database string `json:"database"`
-	}
-	if err := json.Unmarshal(data, &jsonConfig); err != nil {
-		return fmt.Errorf("解析JSON配置失败: %v", err)
-	}
-
-	var count int64
-	s.configDB.Model(&model.DBConfigDB{}).Count(&count)
-	if count > 0 {
-		return nil
-	}
-
-	dbConfig := &config.DBConfig{
-		Type:     jsonConfig.Type,
-		Host:     jsonConfig.Host,
-		Port:     jsonConfig.Port,
-		User:     jsonConfig.User,
-		Password: jsonConfig.Password,
-		Database: jsonConfig.Database,
-	}
-
-	return s.SaveDBConfig(dbConfig)
 }

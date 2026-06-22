@@ -73,23 +73,12 @@ func SetupTestDB(t *testing.T) (*gorm.DB, func()) {
 		&model.Product{},
 		&model.ProductCategory{},
 		&model.Order{},
-		&model.Coupon{},
-		&model.UserCoupon{},
-		&model.Balance{},
+		&model.UserBalance{},
 		&model.BalanceLog{},
-		&model.Points{},
-		&model.PointsLog{},
-		&model.CartItem{},
-		&model.Favorite{},
-		&model.SupportTicket{},
-		&model.TicketMessage{},
-		&model.Announcement{},
-		&model.FAQ{},
-		&model.FAQCategory{},
 		&model.UserSession{},
 		&model.AdminSession{},
-		&model.LoginDevice{},
-		// 注意：OperationLog 已改为文件存储，不再使用数据库
+		&model.ManualKami{},
+		&model.ProductImage{},
 	)
 	if err != nil {
 		t.Fatalf("无法迁移数据库表: %v", err)
@@ -117,7 +106,6 @@ type TestServices struct {
 	ProductSvc  *service.ProductService
 	SessionSvc  *service.SessionService
 	BalanceSvc  *service.BalanceService
-	CouponSvc   *service.CouponService
 }
 
 // SetupTestServices 创建测试服务实例
@@ -140,7 +128,6 @@ func SetupTestServices(t *testing.T) (*TestServices, func()) {
 		ProductSvc: service.NewProductService(repo),
 		SessionSvc: service.NewSessionService(db),
 		BalanceSvc: service.NewBalanceService(repo),
-		CouponSvc:  service.NewCouponService(repo),
 	}
 
 	return services, cleanup

@@ -9,9 +9,32 @@ import (
 
 	"user-frontend/internal/config"
 	"user-frontend/internal/model"
+	"user-frontend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
+
+func userSessionPolicy(remember bool) (time.Duration, int) {
+	serverCfg := config.GlobalConfig.ServerConfig
+	if remember {
+		return service.RememberMeDuration, 604800
+	}
+	if !serverCfg.UserEnableSessionTimeout {
+		return service.LongLivedSessionDuration, int(service.LongLivedSessionDuration.Seconds())
+	}
+	timeout := serverCfg.UserSessionTimeout
+	if timeout <= 0 {
+		timeout = 120
+	}
+	if timeout < 5 {
+		timeout = 5
+	}
+	if timeout > 1440 {
+		timeout = 1440
+	}
+	duration := time.Duration(timeout) * time.Minute
+	return duration, int(duration.Seconds())
+}
 
 // IndexPage 首页
 func IndexPage(c *gin.Context) {
@@ -50,6 +73,12 @@ func UserCenterPage(c *gin.Context) {
 
 // UserRegister 用户注册
 func UserRegister(c *gin.Context) {
+	serverCfg := config.GlobalConfig.ServerConfig
+	if !serverCfg.UserAllowRegister {
+		c.JSON(403, gin.H{"success": false, "error": "当前暂未开放注册"})
+		return
+	}
+
 	if !model.DBConnected {
 		c.JSON(500, gin.H{"success": false, "error": "数据库未连接"})
 		return
@@ -62,8 +91,8 @@ func UserRegister(c *gin.Context) {
 
 	var req struct {
 		Username        string `json:"username" binding:"required"`
-		Email           string `json:"email" binding:"required"`
-		EmailCode       string `json:"email_code" binding:"required"`
+		Email           string `json:"email"`
+		EmailCode       string `json:"email_code"`
 		Password        string `json:"password" binding:"required"`
 		ConfirmPassword string `json:"confirm_password" binding:"required"`
 		Phone           string `json:"phone"`
@@ -72,26 +101,40 @@ func UserRegister(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"success": false, "error": "请填写完整信息（包括邮箱和验证码）"})
+		c.JSON(400, gin.H{"success": false, "error": "请填写完整信息"})
+		return
+	}
+	if req.Email == "" {
+		c.JSON(400, gin.H{"success": false, "error": "请输入邮箱"})
 		return
 	}
 
-	// 验证图形验证码
-	if req.CaptchaID != "" && req.CaptchaCode != "" {
+	// 按用户侧配置决定是否强制校验图形验证码。
+	if serverCfg.UserEnableCaptcha {
+		if req.CaptchaID == "" || req.CaptchaCode == "" {
+			c.JSON(400, gin.H{"success": false, "error": "请输入图形验证码"})
+			return
+		}
 		if !VerifyCaptchaCode(req.CaptchaID, req.CaptchaCode) {
 			c.JSON(400, gin.H{"success": false, "error": "图形验证码错误"})
 			return
 		}
 	}
 
-	// 验证邮箱验证码
-	if EmailSvc == nil {
-		c.JSON(500, gin.H{"success": false, "error": "邮箱服务未初始化"})
-		return
-	}
-	if !EmailSvc.VerifyCode(req.Email, req.EmailCode, "register") {
-		c.JSON(400, gin.H{"success": false, "error": "邮箱验证码错误或已过期"})
-		return
+	requireEmailVerification := serverCfg.UserRequireEmailVerification && config.GlobalConfig.EmailConfig.Enabled
+	if requireEmailVerification {
+		if req.Email == "" || req.EmailCode == "" {
+			c.JSON(400, gin.H{"success": false, "error": "请输入邮箱和邮箱验证码"})
+			return
+		}
+		if EmailSvc == nil {
+			c.JSON(500, gin.H{"success": false, "error": "邮箱服务未初始化"})
+			return
+		}
+		if !EmailSvc.VerifyCode(req.Email, req.EmailCode, "register") {
+			c.JSON(400, gin.H{"success": false, "error": "邮箱验证码错误或已过期"})
+			return
+		}
 	}
 
 	if req.Password != req.ConfirmPassword {
@@ -104,18 +147,47 @@ func UserRegister(c *gin.Context) {
 		return
 	}
 
-	user, err := UserSvc.RegisterWithVerifiedEmail(req.Username, req.Email, req.Password, req.Phone)
+	var user *model.User
+	var err error
+	if requireEmailVerification {
+		user, err = UserSvc.RegisterWithVerifiedEmail(req.Username, req.Email, req.Password, req.Phone)
+	} else {
+		user, err = UserSvc.Register(req.Username, req.Email, req.Password, req.Phone)
+	}
 	if err != nil {
 		c.JSON(400, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
+	if SessionSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "会话服务未初始化"})
+		return
+	}
+	sessionDuration, cookieMaxAge := userSessionPolicy(false)
+	sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
+		return
+	}
+
+	SetSecureCookie(c, "user_session", sessionID, cookieMaxAge, true)
+	csrfToken := SetCSRFCookie(c, sessionID)
+
+	if LogSvc != nil {
+		LogSvc.LogUserActionSimple(user.ID, user.Username, "register", "user", "", nil, c.ClientIP(), c.GetHeader("User-Agent"))
+	}
+
 	c.JSON(200, gin.H{
-		"success": true,
-		"message": "注册成功",
+		"success":    true,
+		"message":    "注册成功",
+		"csrf_token": csrfToken,
 		"user": gin.H{
-			"id":       user.ID,
-			"username": user.Username,
+			"id":             user.ID,
+			"username":       user.Username,
+			"email":          user.Email,
+			"email_verified": user.EmailVerified,
+			"phone":          user.Phone,
+			"created_at":     user.CreatedAt,
 		},
 	})
 }
@@ -162,8 +234,12 @@ func UserLogin(c *gin.Context) {
 		return
 	}
 
-	// 验证验证码
-	if req.CaptchaID != "" && req.CaptchaCode != "" {
+	// 按用户侧配置决定是否强制校验图形验证码。
+	if config.GlobalConfig.ServerConfig.UserEnableCaptcha {
+		if req.CaptchaID == "" || req.CaptchaCode == "" {
+			c.JSON(400, gin.H{"success": false, "error": "请输入验证码"})
+			return
+		}
 		if !VerifyCaptchaCode(req.CaptchaID, req.CaptchaCode) {
 			c.JSON(400, gin.H{"success": false, "error": "验证码错误"})
 			return
@@ -202,7 +278,7 @@ func UserLogin(c *gin.Context) {
 	}
 
 	// 检查是否启用了两步验证
-	if user.Enable2FA {
+	if config.GlobalConfig.ServerConfig.UserEnable2FA && user.Enable2FA {
 		// 生成登录验证令牌，跳转到独立验证页面
 		tokenBytes := make([]byte, 32)
 		rand.Read(tokenBytes)
@@ -232,23 +308,14 @@ func UserLogin(c *gin.Context) {
 		c.JSON(500, gin.H{"success": false, "error": "会话服务未初始化"})
 		return
 	}
-	sessionID, err := SessionSvc.CreateUserSession(user.ID, user.Username, c.ClientIP(), c.GetHeader("User-Agent"), req.Remember)
+	sessionDuration, cookieMaxAge := userSessionPolicy(req.Remember)
+	sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
 	if err != nil {
 		c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 		return
 	}
 
-	// 记录登录设备
-	if DeviceSvc != nil {
-		DeviceSvc.RecordLoginDevice(user.ID, sessionID, c.ClientIP(), c.GetHeader("User-Agent"))
-	}
-
-	// 设置Cookie
-	maxAge := 7200 // 2小时
-	if req.Remember {
-		maxAge = 604800 // 7天
-	}
-	SetSecureCookie(c, "user_session", sessionID, maxAge, true)
+	SetSecureCookie(c, "user_session", sessionID, cookieMaxAge, true)
 
 	// 设置CSRF令牌
 	csrfToken := SetCSRFCookie(c, sessionID)

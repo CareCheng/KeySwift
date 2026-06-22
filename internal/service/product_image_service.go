@@ -165,31 +165,3 @@ func (s *ProductImageService) GetImageCount(productID uint) int64 {
 	s.repo.GetDB().Model(&model.ProductImage{}).Where("product_id = ?", productID).Count(&count)
 	return count
 }
-
-// MigrateExistingImages 迁移现有商品图片到多图片系统
-// 将 Product 表中的 image_url 字段迁移到 ProductImage 表
-func (s *ProductImageService) MigrateExistingImages() error {
-	db := s.repo.GetDB()
-
-	// 获取所有有图片但没有多图片记录的商品
-	var products []model.Product
-	db.Where("image_url != '' AND image_url IS NOT NULL").Find(&products)
-
-	for _, p := range products {
-		// 检查是否已有图片记录
-		var count int64
-		db.Model(&model.ProductImage{}).Where("product_id = ?", p.ID).Count(&count)
-		if count == 0 && p.ImageURL != "" {
-			// 创建图片记录
-			image := &model.ProductImage{
-				ProductID: p.ID,
-				URL:       p.ImageURL,
-				SortOrder: 0,
-				IsPrimary: true,
-			}
-			db.Create(image)
-		}
-	}
-
-	return nil
-}

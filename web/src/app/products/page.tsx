@@ -1,39 +1,30 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { motion } from 'framer-motion'
+import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
-import { Navbar, Footer } from '@/components/layout'
 import { Button, Modal } from '@/components/ui'
-import { apiGet, apiPost } from '@/lib/api'
-import { formatMoney, copyToClipboard } from '@/lib/utils'
+import { UserShell } from '@/components/layout/UserShell'
+import { UserRouteLink } from '@/components/layout/UserRouteLink'
+import { apiPost } from '@/lib/api'
+import { getCachedProducts, getProducts, prefetchProductDetail } from '@/lib/productData'
+import { formatMoney } from '@/lib/utils'
+import { useUserNavigation } from '@/lib/userNavigation'
 import { useI18n } from '@/hooks/useI18n'
+import type { ProductSummary } from '@/types/product'
 
 /**
- * 商品接口
+ * 商品列表视图。
+ * 由用户端主入口和旧路径直达共同复用。
  */
-interface Product {
-  id: number
-  name: string
-  description: string
-  price: number
-  duration: number
-  duration_unit: string
-  stock: number
-  image_url: string
-}
-
-/**
- * 商品列表页面
- */
-export default function ProductsPage() {
+export function ProductsView() {
   const { t } = useI18n()
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const router = useRouter()
+  const navigateUser = useUserNavigation()
+  const [products, setProducts] = useState<ProductSummary[]>(() => getCachedProducts() || [])
+  const [loading, setLoading] = useState(() => !getCachedProducts())
+  const [selectedProduct, setSelectedProduct] = useState<ProductSummary | null>(null)
   const [showPurchaseModal, setShowPurchaseModal] = useState(false)
-  const [showResultModal, setShowResultModal] = useState(false)
-  const [purchaseResult, setPurchaseResult] = useState<{ order_no: string; kami_code: string } | null>(null)
   const [purchasing, setPurchasing] = useState(false)
   
   // 搜索相关状态
@@ -45,10 +36,8 @@ export default function ProductsPage() {
   // 加载商品列表
   useEffect(() => {
     const loadProducts = async () => {
-      const res = await apiGet<{ products: Product[] }>('/api/products')
-      if (res.success && res.products) {
-        setProducts(res.products)
-      }
+      const list = await getProducts()
+      setProducts(list)
       setLoading(false)
     }
     loadProducts()
@@ -78,7 +67,7 @@ export default function ProductsPage() {
   }, [products, searchQuery, sortBy])
 
   // 选择商品
-  const handleSelectProduct = (product: Product) => {
+  const handleSelectProduct = (product: ProductSummary) => {
     setSelectedProduct(product)
     setShowPurchaseModal(true)
   }
@@ -96,45 +85,28 @@ export default function ProductsPage() {
     if (res.success && res.order_no) {
       setShowPurchaseModal(false)
       toast.success(t('product.orderCreated'))
-      window.location.href = `/payment?order_no=${res.order_no}`
+      navigateUser('payment', { order_no: res.order_no })
     } else {
       if (res.error === '请先登录') {
-        window.location.href = '/login/'
+        router.push('/login/')
       } else {
         toast.error(res.error || t('product.orderCreateFailed'))
       }
     }
   }
 
-  // 复制卡密
-  const handleCopyKami = async () => {
-    if (purchaseResult?.kami_code) {
-      const success = await copyToClipboard(purchaseResult.kami_code)
-      if (success) {
-        toast.success(t('common.copied'))
-      }
-    }
-  }
-
   return (
-    <div className="min-h-screen flex flex-col">
-      <Navbar />
-
+    <>
       <main className="flex-1 py-8 px-4">
         <div className="max-w-6xl mx-auto">
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+          <h1
             className="text-3xl font-bold text-dark-100 mb-8 text-center"
           >
             {t('product.productList')}
-          </motion.h1>
+          </h1>
 
           {/* 搜索和筛选栏 */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+          <div
             className="mb-6 flex flex-col sm:flex-row gap-4"
           >
             <div className="flex-1 relative">
@@ -164,20 +136,18 @@ export default function ProductsPage() {
               <option value="price_asc">{t('product.sortPriceAsc')}</option>
               <option value="price_desc">{t('product.sortPriceDesc')}</option>
             </select>
-          </motion.div>
+          </div>
 
           {/* 搜索结果提示 */}
           {searchQuery && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+            <div
               className="mb-4 text-dark-400 text-sm"
             >
               {t('product.foundProducts').replace('{count}', String(filteredProducts.length))}
               {filteredProducts.length === 0 && (
                 <span className="ml-2">- {t('product.tryOtherKeywords')}</span>
               )}
-            </motion.div>
+            </div>
           )}
 
           {loading ? (
@@ -208,8 +178,9 @@ export default function ProductsPage() {
                 <div
                   key={product.id}
                   className="product-card cursor-pointer"
+                  onMouseEnter={() => prefetchProductDetail(product.id)}
                 >
-                  <a href={`/product?id=${product.id}`} className="block">
+                  <UserRouteLink view="product" params={{ id: product.id }} className="block">
                     <div className="h-40 bg-gradient-to-br from-primary-500/20 to-purple-500/20 flex items-center justify-center">
                       {product.image_url ? (
                         <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
@@ -227,7 +198,7 @@ export default function ProductsPage() {
                         <span className="text-xl font-bold text-primary-400">{formatMoney(product.price)}</span>
                       </div>
                       <div className="mt-3 text-sm">
-                        {product.stock === -1 ? (
+                        {product.stock === undefined || product.stock === -1 ? (
                           <span className="text-emerald-400">{t('product.stockSufficient')}</span>
                         ) : product.stock > 0 ? (
                           <span className="text-amber-400">{t('product.stock')}: {product.stock}</span>
@@ -236,7 +207,7 @@ export default function ProductsPage() {
                         )}
                       </div>
                     </div>
-                  </a>
+                  </UserRouteLink>
                   <div className="px-5 pb-5">
                     <Button
                       variant="primary"
@@ -254,8 +225,6 @@ export default function ProductsPage() {
           )}
         </div>
       </main>
-
-      <Footer />
 
       {/* 购买确认弹窗 */}
       <Modal isOpen={showPurchaseModal} onClose={() => setShowPurchaseModal(false)} title={t('product.confirmPurchase')} size="sm">
@@ -283,31 +252,17 @@ export default function ProductsPage() {
         )}
       </Modal>
 
-      {/* 购买结果弹窗 */}
-      <Modal isOpen={showResultModal} onClose={() => setShowResultModal(false)} title={t('product.purchaseSuccess')} size="sm">
-        {purchaseResult && (
-          <div className="space-y-4">
-            <div className="text-center py-4">
-              <div className="text-5xl mb-4">🎉</div>
-              <p className="text-dark-300">{t('product.congratulations')}</p>
-            </div>
-            <div className="bg-dark-700/30 rounded-xl p-4 space-y-3">
-              <div>
-                <span className="text-dark-400 text-sm">{t('order.orderNo')}</span>
-                <p className="text-dark-100 font-mono">{purchaseResult.order_no}</p>
-              </div>
-              <div>
-                <span className="text-dark-400 text-sm">{t('order.kamiCode')}</span>
-                <p className="text-primary-400 font-mono text-lg break-all">{purchaseResult.kami_code}</p>
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button variant="secondary" className="flex-1" onClick={() => setShowResultModal(false)}>{t('common.close')}</Button>
-              <Button variant="primary" className="flex-1" onClick={handleCopyKami}><i className="fas fa-copy mr-2" />{t('order.copyKami')}</Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-    </div>
+    </>
+  )
+}
+
+/**
+ * 商品列表旧路径直达入口。
+ */
+export default function ProductsPage() {
+  return (
+    <UserShell>
+      <ProductsView />
+    </UserShell>
   )
 }

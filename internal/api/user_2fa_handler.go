@@ -29,6 +29,11 @@ type LoginToken struct {
 
 // Enable2FA 启用两步验证
 func Enable2FA(c *gin.Context) {
+	if !config.GlobalConfig.ServerConfig.UserEnable2FA {
+		c.JSON(403, gin.H{"success": false, "error": "用户两步验证暂未开放"})
+		return
+	}
+
 	if UserSvc == nil {
 		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
 		return
@@ -154,6 +159,11 @@ func Get2FAStatus(c *gin.Context) {
 
 // Generate2FASecret 生成2FA密钥
 func Generate2FASecret(c *gin.Context) {
+	if !config.GlobalConfig.ServerConfig.UserEnable2FA {
+		c.JSON(403, gin.H{"success": false, "error": "用户两步验证暂未开放"})
+		return
+	}
+
 	username := c.GetString("username")
 
 	key, err := totp.Generate(totp.GenerateOpts{
@@ -328,19 +338,14 @@ func Verify2FALogin(c *gin.Context) {
 			c.JSON(500, gin.H{"success": false, "error": "会话服务未初始化"})
 			return
 		}
-		sessionID, err := SessionSvc.CreateUserSession(user.ID, user.Username, c.ClientIP(), c.GetHeader("User-Agent"), false)
+		sessionDuration, cookieMaxAge := userSessionPolicy(false)
+		sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
 		if err != nil {
 			c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 			return
 		}
 
-		// 记录登录设备
-		if DeviceSvc != nil {
-			DeviceSvc.RecordLoginDevice(user.ID, sessionID, c.ClientIP(), c.GetHeader("User-Agent"))
-		}
-
-		// 设置Cookie
-		SetSecureCookie(c, "user_session", sessionID, 7200, true)
+		SetSecureCookie(c, "user_session", sessionID, cookieMaxAge, true)
 
 		// 设置CSRF令牌
 		csrfToken := SetCSRFCookie(c, sessionID)
@@ -360,6 +365,11 @@ func Verify2FALogin(c *gin.Context) {
 
 // Enable2FAEmail 启用邮箱方式的两步验证
 func Enable2FAEmail(c *gin.Context) {
+	if !config.GlobalConfig.ServerConfig.UserEnable2FA {
+		c.JSON(403, gin.H{"success": false, "error": "用户两步验证暂未开放"})
+		return
+	}
+
 	if UserSvc == nil {
 		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
 		return

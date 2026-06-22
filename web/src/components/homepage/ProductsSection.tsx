@@ -1,21 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { motion } from 'framer-motion'
-import { apiGet } from '@/lib/api'
+import { UserRouteLink } from '@/components/layout/UserRouteLink'
+import { getProducts, prefetchProductDetail } from '@/lib/productData'
 import { formatMoney } from '@/lib/utils'
 import type { HomepageConfig } from '@/types/homepage'
-
-interface Product {
-  id: number
-  name: string
-  description: string
-  price: number
-  duration: number
-  duration_unit: string
-  image_url: string
-}
+import type { ProductSummary } from '@/types/product'
 
 interface ProductsSectionProps {
   config: HomepageConfig
@@ -25,17 +15,15 @@ interface ProductsSectionProps {
  * 商品展示区块组件
  */
 export function ProductsSection({ config }: ProductsSectionProps) {
-  const [products, setProducts] = useState<Product[]>([])
+  const [products, setProducts] = useState<ProductSummary[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!config.products_enabled) return
 
     const loadProducts = async () => {
-      const res = await apiGet<{ products: Product[] }>('/api/products')
-      if (res.success && res.products) {
-        setProducts(res.products.slice(0, config.products_count || 6))
-      }
+      const list = await getProducts()
+      setProducts(list.slice(0, config.products_count || 6))
       setLoading(false)
     }
     loadProducts()
@@ -47,15 +35,12 @@ export function ProductsSection({ config }: ProductsSectionProps) {
     <section className="py-16 px-4" style={{ backgroundColor: 'var(--bg-secondary)' }}>
       <div className="max-w-6xl mx-auto">
         {config.products_title && (
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
+          <h2
             className="text-3xl font-bold text-center mb-12"
             style={{ color: 'var(--text-primary)' }}
           >
             {config.products_title}
-          </motion.h2>
+          </h2>
         )}
 
         {loading ? (
@@ -75,15 +60,12 @@ export function ProductsSection({ config }: ProductsSectionProps) {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {products.map((product, index) => (
-              <motion.div
+            {products.map((product) => (
+              <div
                 key={product.id}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
+                onMouseEnter={() => prefetchProductDetail(product.id)}
               >
-                <Link href={`/product?id=${product.id}`} className="block">
+                <UserRouteLink view="product" params={{ id: product.id }} className="block">
                   <div className="card overflow-hidden hover:shadow-lg transition-all hover:-translate-y-1">
                     <div
                       className="h-32 flex items-center justify-center"
@@ -127,20 +109,17 @@ export function ProductsSection({ config }: ProductsSectionProps) {
                       </div>
                     </div>
                   </div>
-                </Link>
-              </motion.div>
+                </UserRouteLink>
+              </div>
             ))}
           </div>
         )}
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={{ once: true }}
+        <div
           className="text-center mt-8"
         >
-          <Link
-            href="/products/"
+          <UserRouteLink
+            view="products"
             className="inline-flex items-center gap-2 px-6 py-3 rounded-xl transition-all hover:gap-3"
             style={{
               color: config.primary_color,
@@ -149,8 +128,8 @@ export function ProductsSection({ config }: ProductsSectionProps) {
           >
             查看全部商品
             <i className="fas fa-arrow-right" />
-          </Link>
-        </motion.div>
+          </UserRouteLink>
+        </div>
       </div>
     </section>
   )

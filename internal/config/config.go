@@ -7,13 +7,11 @@ import (
 
 // Config 全局配置
 type Config struct {
-	DBConfig      DBConfig      `json:"db_config"`       // 数据库配置（从SQLite配置数据库加载）
-	ServerConfig  ServerConfig  `json:"server_config"`   // 服务器配置（运行时从主数据库加载）
-	PaymentConfig PaymentConfig `json:"payment_config"`  // 支付配置（运行时从主数据库加载）
-	EmailConfig   EmailConfig   `json:"email_config"`    // 邮箱配置（运行时从主数据库加载）
-	RedisConfig   RedisConfig   `json:"redis_config"`    // Redis 配置（从SQLite配置数据库加载）
-	ConfigDir     string        `json:"-"`
-	mu            sync.RWMutex
+	DBConfig     DBConfig     `json:"db_config"`     // 数据库配置（从SQLite配置数据库加载）
+	ServerConfig ServerConfig `json:"server_config"` // 服务器配置（运行时从主数据库加载）
+	EmailConfig  EmailConfig  `json:"email_config"`  // 邮箱配置（运行时从主数据库加载）
+	ConfigDir    string       `json:"-"`
+	mu           sync.RWMutex
 }
 
 // EmailConfig 邮箱配置
@@ -29,42 +27,6 @@ type EmailConfig struct {
 	CodeLength   int    `json:"code_length"`
 }
 
-// PaymentConfig 支付配置
-type PaymentConfig struct {
-	AlipayF2F AlipayF2FConfig `json:"alipay_f2f"`
-	WechatPay WechatPayConfig `json:"wechat_pay"`
-	YiPay     YiPayConfig     `json:"yi_pay"`
-	PayPal    PayPalConfig    `json:"paypal"`
-	// Stripe支付配置
-	StripeEnabled        bool   `json:"stripe_enabled"`         // 是否启用Stripe
-	StripePublishableKey string `json:"stripe_publishable_key"` // Stripe公钥（前端使用）
-	StripeSecretKey      string `json:"stripe_secret_key"`      // Stripe私钥（后端使用）
-	StripeWebhookSecret  string `json:"stripe_webhook_secret"`  // Webhook签名密钥
-	StripeCurrency       string `json:"stripe_currency"`        // 货币代码，默认usd
-	// USDT支付配置
-	USDTEnabled       bool    `json:"usdt_enabled"`        // 是否启用USDT
-	USDTNetwork       string  `json:"usdt_network"`        // 网络类型：TRC20, ERC20, BEP20
-	USDTWalletAddress string  `json:"usdt_wallet_address"` // 收款钱包地址
-	USDTAPIProvider   string  `json:"usdt_api_provider"`   // API提供商：nowpayments, coingate, manual
-	USDTAPIKey        string  `json:"usdt_api_key"`        // API密钥
-	USDTAPISecret     string  `json:"usdt_api_secret"`     // API密钥（部分提供商需要）
-	USDTWebhookSecret string  `json:"usdt_webhook_secret"` // Webhook签名密钥
-	USDTExchangeRate  float64 `json:"usdt_exchange_rate"`  // 汇率（手动模式使用）
-	USDTMinAmount     float64 `json:"usdt_min_amount"`     // 最小支付金额（USDT）
-	USDTConfirmations int     `json:"usdt_confirmations"`  // 需要的确认数
-}
-
-// PayPalConfig PayPal支付配置
-type PayPalConfig struct {
-	Enabled      bool   `json:"enabled"`
-	ClientID     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	Sandbox      bool   `json:"sandbox"`
-	Currency     string `json:"currency"`
-	ReturnURL    string `json:"return_url"`
-	CancelURL    string `json:"cancel_url"`
-}
-
 // DBConfig 数据库配置（从SQLite配置数据库加载）
 type DBConfig struct {
 	Type     string `json:"type"` // mysql, postgres, sqlite
@@ -77,89 +39,26 @@ type DBConfig struct {
 
 // ServerConfig 服务器配置（运行时从主数据库加载）
 type ServerConfig struct {
-	Port          int    `json:"port"`
-	UseHTTPS      bool   `json:"use_https"`
-	CertFile      string `json:"cert_file"`
-	KeyFile       string `json:"key_file"`
-	AdminUsername string `json:"admin_username"`
-	AdminPassword string `json:"admin_password"`
-	AdminSuffix   string `json:"admin_suffix"`
-	EnableLogin   bool   `json:"enable_login"`
-	Enable2FA     bool   `json:"enable_2fa"`
-	TOTPSecret    string `json:"totp_secret"`
-	SystemTitle   string `json:"system_title"`
-}
-
-// AlipayF2FConfig 支付宝当面付配置
-type AlipayF2FConfig struct {
-	Enabled    bool   `json:"enabled"`
-	AppID      string `json:"app_id"`
-	PrivateKey string `json:"private_key"`
-	PublicKey  string `json:"public_key"`
-	NotifyURL  string `json:"notify_url"`
-}
-
-// WechatPayConfig 微信支付配置
-type WechatPayConfig struct {
-	Enabled   bool   `json:"enabled"`
-	AppID     string `json:"app_id"`
-	MchID     string `json:"mch_id"`
-	APIKey    string `json:"api_key"`
-	NotifyURL string `json:"notify_url"`
-}
-
-// YiPayConfig 易支付配置
-type YiPayConfig struct {
-	Enabled   bool   `json:"enabled"`
-	APIURL    string `json:"api_url"`
-	PID       string `json:"pid"`
-	Key       string `json:"key"`
-	NotifyURL string `json:"notify_url"`
-	ReturnURL string `json:"return_url"`
-}
-
-// RedisConfig Redis 配置结构
-//
-// 运行时使用的 Redis 配置，从数据库加载。
-type RedisConfig struct {
-	// Enabled 是否启用 Redis
-	Enabled bool `json:"enabled"`
-
-	// Mode 部署模式 (standalone/sentinel/cluster)
-	Mode string `json:"mode"`
-
-	// 单机模式配置
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Password string `json:"password"`
-	Database int    `json:"database"`
-
-	// 哨兵模式配置
-	SentinelAddrs    []string `json:"sentinel_addrs"`
-	SentinelMaster   string   `json:"sentinel_master"`
-	SentinelPassword string   `json:"sentinel_password"`
-
-	// 集群模式配置
-	ClusterAddrs []string `json:"cluster_addrs"`
-
-	// 连接池配置
-	PoolSize     int `json:"pool_size"`
-	MinIdleConns int `json:"min_idle_conns"`
-	MaxRetries   int `json:"max_retries"`
-	DialTimeout  int `json:"dial_timeout"`
-	ReadTimeout  int `json:"read_timeout"`
-	WriteTimeout int `json:"write_timeout"`
-
-	// 高级配置
-	KeyPrefix     string `json:"key_prefix"`
-	DefaultTTL    int    `json:"default_ttl"`
-	EnableMetrics bool   `json:"enable_metrics"`
-
-	// TLS 配置
-	TLSEnabled bool   `json:"tls_enabled"`
-	TLSCert    string `json:"tls_cert"`
-	TLSKey     string `json:"tls_key"`
-	TLSCACert  string `json:"tls_ca_cert"`
+	Port                         int    `json:"port"`
+	UseHTTPS                     bool   `json:"use_https"`
+	CertFile                     string `json:"cert_file"`
+	KeyFile                      string `json:"key_file"`
+	AdminUsername                string `json:"admin_username"`
+	AdminPassword                string `json:"admin_password"`
+	AdminSuffix                  string `json:"admin_suffix"`
+	EnableLogin                  bool   `json:"enable_login"`
+	EnableCaptcha                bool   `json:"enable_captcha"`
+	Enable2FA                    bool   `json:"enable_2fa"`
+	TOTPSecret                   string `json:"totp_secret"`
+	EnableSessionTimeout         bool   `json:"enable_session_timeout"`
+	SessionTimeout               int    `json:"session_timeout"`
+	UserAllowRegister            bool   `json:"user_allow_register"`
+	UserEnableCaptcha            bool   `json:"user_enable_captcha"`
+	UserEnable2FA                bool   `json:"user_enable_2fa"`
+	UserRequireEmailVerification bool   `json:"user_require_email_verification"`
+	UserEnableSessionTimeout     bool   `json:"user_enable_session_timeout"`
+	UserSessionTimeout           int    `json:"user_session_timeout"`
+	SystemTitle                  string `json:"system_title"`
 }
 
 var (
@@ -187,13 +86,22 @@ func (c *Config) LoadAll() error {
 
 	// 设置默认的服务器配置（实际值从数据库加载）
 	c.ServerConfig = ServerConfig{
-		Port:          8080,
-		AdminUsername: "admin",
-		AdminPassword: "admin123",
-		AdminSuffix:   "manage",
-		EnableLogin:   true,
-		Enable2FA:     false,
-		SystemTitle:   "卡密购买系统",
+		Port:                         8080,
+		AdminUsername:                "admin",
+		AdminPassword:                "admin123",
+		AdminSuffix:                  "manage",
+		EnableLogin:                  true,
+		EnableCaptcha:                true,
+		Enable2FA:                    false,
+		EnableSessionTimeout:         true,
+		SessionTimeout:               60,
+		UserAllowRegister:            true,
+		UserEnableCaptcha:            true,
+		UserEnable2FA:                true,
+		UserRequireEmailVerification: false,
+		UserEnableSessionTimeout:     true,
+		UserSessionTimeout:           120,
+		SystemTitle:                  "卡密购买系统",
 	}
 
 	// 设置默认的邮箱配置（实际值从数据库加载）
@@ -201,27 +109,6 @@ func (c *Config) LoadAll() error {
 		SMTPPort:   465,
 		Encryption: "ssl",
 		CodeLength: 6,
-	}
-
-	// 支付配置默认为空（实际值从数据库加载）
-	c.PaymentConfig = PaymentConfig{}
-
-	// Redis 配置默认为禁用（实际值从SQLite配置数据库加载）
-	c.RedisConfig = RedisConfig{
-		Enabled:      false,
-		Mode:         "standalone",
-		Host:         "127.0.0.1",
-		Port:         6379,
-		Database:     0,
-		PoolSize:     10,
-		MinIdleConns: 5,
-		MaxRetries:   3,
-		DialTimeout:  5,
-		ReadTimeout:  3,
-		WriteTimeout: 3,
-		KeyPrefix:    "user:",
-		DefaultTTL:   300,
-		EnableMetrics: true,
 	}
 
 	return nil
@@ -232,13 +119,6 @@ func (c *Config) SetDBConfig(cfg DBConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.DBConfig = cfg
-}
-
-// SetRedisConfig 设置 Redis 配置（由 ConfigService 调用）
-func (c *Config) SetRedisConfig(cfg RedisConfig) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.RedisConfig = cfg
 }
 
 // SetServerConfig 设置服务器配置（由 ConfigService 调用）

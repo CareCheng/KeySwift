@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { motion } from 'framer-motion'
 import type { HomepageConfig } from '@/types/homepage'
 
 interface CTASectionProps {
@@ -17,10 +16,7 @@ export function CTASection({ config }: CTASectionProps) {
   return (
     <section className="py-20 px-4">
       <div className="max-w-4xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
+        <div
           className="relative rounded-3xl p-12 text-center overflow-hidden"
           style={{
             background: `linear-gradient(135deg, ${config.primary_color}, ${config.secondary_color})`,
@@ -52,7 +48,7 @@ export function CTASection({ config }: CTASectionProps) {
               {config.cta_button_text}
             </Link>
           </div>
-        </motion.div>
+        </div>
       </div>
     </section>
   )

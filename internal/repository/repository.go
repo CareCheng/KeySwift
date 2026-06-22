@@ -51,31 +51,10 @@ func (r *Repository) UpdateUser(user *model.User) error {
 func (r *Repository) GetAllUsers(page, pageSize int) ([]model.User, int64, error) {
 	var users []model.User
 	var total int64
-	
+
 	r.db.Model(&model.User{}).Count(&total)
 	err := r.db.Offset((page - 1) * pageSize).Limit(pageSize).Order("id DESC").Find(&users).Error
 	return users, total, err
-}
-
-// AdminUser 相关操作
-func (r *Repository) CreateAdminUser(admin *model.AdminUser) error {
-	return r.db.Create(admin).Error
-}
-
-func (r *Repository) GetAdminByUsername(username string) (*model.AdminUser, error) {
-	var admin model.AdminUser
-	err := r.db.Where("username = ?", username).First(&admin).Error
-	return &admin, err
-}
-
-func (r *Repository) UpdateAdminUser(admin *model.AdminUser) error {
-	return r.db.Save(admin).Error
-}
-
-func (r *Repository) GetAllAdmins() ([]model.AdminUser, error) {
-	var admins []model.AdminUser
-	err := r.db.Find(&admins).Error
-	return admins, err
 }
 
 // Product 相关操作
@@ -127,13 +106,13 @@ func (r *Repository) GetAllProducts(onlyActive bool) ([]model.Product, error) {
 func (r *Repository) GetProductsWithPagination(page, pageSize int, onlyActive bool) ([]model.Product, int64, error) {
 	var products []model.Product
 	var total int64
-	
+
 	query := r.db.Model(&model.Product{})
 	if onlyActive {
 		query = query.Where("status = ?", 1)
 	}
 	query.Count(&total)
-	
+
 	err := query.Offset((page - 1) * pageSize).Limit(pageSize).Order("sort_order ASC, id DESC").Find(&products).Error
 	return products, total, err
 }
@@ -162,7 +141,7 @@ func (r *Repository) UpdateOrder(order *model.Order) error {
 func (r *Repository) GetOrdersByUserID(userID uint, page, pageSize int) ([]model.Order, int64, error) {
 	var orders []model.Order
 	var total int64
-	
+
 	r.db.Model(&model.Order{}).Where("user_id = ?", userID).Count(&total)
 	err := r.db.Where("user_id = ?", userID).Offset((page - 1) * pageSize).Limit(pageSize).Order("id DESC").Find(&orders).Error
 	return orders, total, err
@@ -171,13 +150,13 @@ func (r *Repository) GetOrdersByUserID(userID uint, page, pageSize int) ([]model
 func (r *Repository) GetAllOrders(page, pageSize int, status *int) ([]model.Order, int64, error) {
 	var orders []model.Order
 	var total int64
-	
+
 	query := r.db.Model(&model.Order{})
 	if status != nil {
 		query = query.Where("status = ?", *status)
 	}
 	query.Count(&total)
-	
+
 	err := query.Offset((page - 1) * pageSize).Limit(pageSize).Order("id DESC").Find(&orders).Error
 	return orders, total, err
 }
@@ -288,38 +267,6 @@ func (r *Repository) SaveEmailConfig(config *model.EmailConfigDB) error {
 	return r.db.Save(config).Error
 }
 
-// ==================== 支付配置相关操作 ====================
-
-// GetPaymentConfig 获取指定类型的支付配置
-func (r *Repository) GetPaymentConfig(paymentType string) (*model.PaymentConfigDB, error) {
-	var config model.PaymentConfigDB
-	err := r.db.Where("payment_type = ?", paymentType).First(&config).Error
-	if err != nil {
-		return nil, err
-	}
-	return &config, nil
-}
-
-// GetAllPaymentConfigs 获取所有支付配置
-func (r *Repository) GetAllPaymentConfigs() ([]model.PaymentConfigDB, error) {
-	var configs []model.PaymentConfigDB
-	err := r.db.Find(&configs).Error
-	return configs, err
-}
-
-// SavePaymentConfig 保存支付配置
-func (r *Repository) SavePaymentConfig(config *model.PaymentConfigDB) error {
-	var existing model.PaymentConfigDB
-	err := r.db.Where("payment_type = ?", config.PaymentType).First(&existing).Error
-	if err != nil {
-		// 不存在则创建
-		return r.db.Create(config).Error
-	}
-	// 存在则更新
-	config.ID = existing.ID
-	return r.db.Save(config).Error
-}
-
 // ==================== 系统配置相关操作 ====================
 
 // GetSystemConfig 获取系统配置
@@ -355,40 +302,6 @@ func (r *Repository) GetRecentLoginAttempts(username string, since time.Time) ([
 	var attempts []model.LoginAttempt
 	err := r.db.Where("username = ? AND created_at > ?", username, since).Order("created_at DESC").Find(&attempts).Error
 	return attempts, err
-}
-
-// ==================== 公告相关操作 ====================
-
-func (r *Repository) CreateAnnouncement(announcement *model.Announcement) error {
-	return r.db.Create(announcement).Error
-}
-
-func (r *Repository) UpdateAnnouncement(announcement *model.Announcement) error {
-	return r.db.Save(announcement).Error
-}
-
-func (r *Repository) DeleteAnnouncement(id uint) error {
-	return r.db.Delete(&model.Announcement{}, id).Error
-}
-
-func (r *Repository) GetAnnouncementByID(id uint) (*model.Announcement, error) {
-	var announcement model.Announcement
-	err := r.db.First(&announcement, id).Error
-	return &announcement, err
-}
-
-func (r *Repository) GetAllAnnouncements() ([]model.Announcement, error) {
-	var announcements []model.Announcement
-	err := r.db.Order("sort_order ASC, id DESC").Find(&announcements).Error
-	return announcements, err
-}
-
-func (r *Repository) GetActiveAnnouncements() ([]model.Announcement, error) {
-	var announcements []model.Announcement
-	now := time.Now()
-	err := r.db.Where("status = ? AND (start_at IS NULL OR start_at <= ?) AND (end_at IS NULL OR end_at >= ?)", 1, now, now).
-		Order("sort_order ASC, id DESC").Find(&announcements).Error
-	return announcements, err
 }
 
 // ==================== 商品分类相关操作 ====================
@@ -521,95 +434,6 @@ func (r *Repository) GetProductsByCategory(categoryID uint, onlyActive bool) ([]
 	return products, err
 }
 
-// ==================== 优惠券相关操作 ====================
-
-func (r *Repository) CreateCoupon(coupon *model.Coupon) error {
-	return r.db.Create(coupon).Error
-}
-
-func (r *Repository) UpdateCoupon(coupon *model.Coupon) error {
-	return r.db.Save(coupon).Error
-}
-
-func (r *Repository) DeleteCoupon(id uint) error {
-	return r.db.Delete(&model.Coupon{}, id).Error
-}
-
-func (r *Repository) GetCouponByID(id uint) (*model.Coupon, error) {
-	var coupon model.Coupon
-	err := r.db.First(&coupon, id).Error
-	return &coupon, err
-}
-
-func (r *Repository) GetCouponByCode(code string) (*model.Coupon, error) {
-	var coupon model.Coupon
-	err := r.db.Where("code = ?", code).First(&coupon).Error
-	return &coupon, err
-}
-
-func (r *Repository) GetAllCoupons() ([]model.Coupon, error) {
-	var coupons []model.Coupon
-	err := r.db.Order("id DESC").Find(&coupons).Error
-	return coupons, err
-}
-
-func (r *Repository) GetActiveCoupons() ([]model.Coupon, error) {
-	var coupons []model.Coupon
-	now := time.Now()
-	err := r.db.Where("status = ? AND (start_at IS NULL OR start_at <= ?) AND (end_at IS NULL OR end_at >= ?) AND (total_count = -1 OR used_count < total_count)", 1, now, now).
-		Order("id DESC").Find(&coupons).Error
-	return coupons, err
-}
-
-func (r *Repository) IncrementCouponUsedCount(couponID uint) error {
-	return r.db.Model(&model.Coupon{}).Where("id = ?", couponID).
-		UpdateColumn("used_count", gorm.Expr("used_count + ?", 1)).Error
-}
-
-// CouponUsage 相关
-func (r *Repository) CreateCouponUsage(usage *model.CouponUsage) error {
-	return r.db.Create(usage).Error
-}
-
-func (r *Repository) GetUserCouponUsageCount(userID, couponID uint) (int64, error) {
-	var count int64
-	err := r.db.Model(&model.CouponUsage{}).Where("user_id = ? AND coupon_id = ?", userID, couponID).Count(&count).Error
-	return count, err
-}
-
-func (r *Repository) GetCouponUsages(couponID uint, page, pageSize int) ([]model.CouponUsage, int64, error) {
-	var usages []model.CouponUsage
-	var total int64
-
-	query := r.db.Model(&model.CouponUsage{}).Where("coupon_id = ?", couponID)
-	query.Count(&total)
-
-	err := query.Offset((page - 1) * pageSize).Limit(pageSize).Order("id DESC").Find(&usages).Error
-	return usages, total, err
-}
-
-// ==================== 数据库备份相关操作 ====================
-
-func (r *Repository) CreateBackupRecord(backup *model.DatabaseBackup) error {
-	return r.db.Create(backup).Error
-}
-
-func (r *Repository) GetAllBackups() ([]model.DatabaseBackup, error) {
-	var backups []model.DatabaseBackup
-	err := r.db.Order("id DESC").Find(&backups).Error
-	return backups, err
-}
-
-func (r *Repository) GetBackupByID(id uint) (*model.DatabaseBackup, error) {
-	var backup model.DatabaseBackup
-	err := r.db.First(&backup, id).Error
-	return &backup, err
-}
-
-func (r *Repository) DeleteBackupRecord(id uint) error {
-	return r.db.Delete(&model.DatabaseBackup{}, id).Error
-}
-
 // ==================== 用户会话相关操作 ====================
 
 func (r *Repository) CreateUserSession(session *model.UserSession) error {
@@ -703,6 +527,141 @@ func (r *Repository) CountActiveLoginFailures() (int64, error) {
 	return count, err
 }
 
+// ==================== 插件治理相关操作 ====================
+
+func (r *Repository) UpsertPluginRegistry(record *model.PluginRegistry) error {
+	var existing model.PluginRegistry
+	err := r.db.Where("plugin_id = ?", record.PluginID).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) GetPluginRegistry(pluginID string) (*model.PluginRegistry, error) {
+	var record model.PluginRegistry
+	err := r.db.Where("plugin_id = ?", pluginID).First(&record).Error
+	return &record, err
+}
+
+func (r *Repository) ListPluginRegistries() ([]model.PluginRegistry, error) {
+	var records []model.PluginRegistry
+	err := r.db.Order("plugin_id ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) UpsertPluginArtifact(record *model.PluginArtifact) error {
+	var existing model.PluginArtifact
+	err := r.db.Where("plugin_id = ? AND artifact_id = ?", record.PluginID, record.ArtifactID).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) ListPluginArtifacts(pluginID string) ([]model.PluginArtifact, error) {
+	var records []model.PluginArtifact
+	err := r.db.Where("plugin_id = ?", pluginID).Order("artifact_id ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) UpsertPluginBinding(record *model.PluginBinding) error {
+	var existing model.PluginBinding
+	err := r.db.Where("plugin_id = ? AND binding_type = ? AND binding_key = ?", record.PluginID, record.BindingType, record.BindingKey).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) ListPluginBindings(pluginID string) ([]model.PluginBinding, error) {
+	var records []model.PluginBinding
+	err := r.db.Where("plugin_id = ?", pluginID).Order("id ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) DeletePluginBindings(pluginID string) error {
+	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginBinding{}).Error
+}
+
+func (r *Repository) UpsertPluginConfig(record *model.PluginConfig) error {
+	var existing model.PluginConfig
+	err := r.db.Where("plugin_id = ? AND config_key = ?", record.PluginID, record.ConfigKey).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) ListPluginConfigs(pluginID string) ([]model.PluginConfig, error) {
+	var records []model.PluginConfig
+	err := r.db.Where("plugin_id = ?", pluginID).Order("config_key ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) UpsertPluginEventLog(record *model.PluginEventLog) error {
+	var existing model.PluginEventLog
+	err := r.db.Where("event_id = ?", record.EventID).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) ListPluginEventLogs(pluginID string) ([]model.PluginEventLog, error) {
+	var records []model.PluginEventLog
+	query := r.db.Model(&model.PluginEventLog{})
+	if pluginID != "" {
+		query = query.Where("producer_id = ? OR resource_id = ?", pluginID, pluginID)
+	}
+	err := query.Order("id DESC").Limit(200).Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) UpsertPluginJob(record *model.PluginJob) error {
+	var existing model.PluginJob
+	err := r.db.Where("job_id = ?", record.JobID).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) ListPluginJobs(pluginID string) ([]model.PluginJob, error) {
+	var records []model.PluginJob
+	query := r.db.Model(&model.PluginJob{})
+	if pluginID != "" {
+		query = query.Where("extensions_json LIKE ?", "%"+pluginID+"%")
+	}
+	err := query.Order("id DESC").Limit(200).Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) UpsertPluginMigration(record *model.PluginMigration) error {
+	var existing model.PluginMigration
+	err := r.db.Where("plugin_id = ? AND migration_id = ?", record.PluginID, record.MigrationID).First(&existing).Error
+	if err != nil {
+		return r.db.Create(record).Error
+	}
+	record.ID = existing.ID
+	return r.db.Save(record).Error
+}
+
+func (r *Repository) ListPluginMigrations(pluginID string) ([]model.PluginMigration, error) {
+	var records []model.PluginMigration
+	err := r.db.Where("plugin_id = ?", pluginID).Order("id ASC").Find(&records).Error
+	return records, err
+}
+
+func (r *Repository) DeletePluginMigrations(pluginID string) error {
+	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginMigration{}).Error
+}
 
 // ==================== 手动卡密相关操作 ====================
 

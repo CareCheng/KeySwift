@@ -1,14 +1,160 @@
 package api
 
 import (
+	"encoding/json"
 	"strconv"
+	"time"
 
 	"user-frontend/internal/model"
+	pluginapi "user-frontend/internal/plugin"
 
 	"github.com/gin-gonic/gin"
 )
 
 // ==================== 角色管理 API ====================
+
+type roleResponse struct {
+	ID          uint      `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Permissions []string  `json:"permissions"`
+	IsSystem    bool      `json:"is_system"`
+	Status      int       `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type adminResponse struct {
+	ID          uint       `json:"id"`
+	Username    string     `json:"username"`
+	Email       string     `json:"email"`
+	Nickname    string     `json:"nickname"`
+	RoleID      uint       `json:"role_id"`
+	RoleName    string     `json:"role_name"`
+	Enable2FA   bool       `json:"enable_2fa"`
+	Status      int        `json:"status"`
+	LastLoginAt *time.Time `json:"last_login_at"`
+	LastLoginIP string     `json:"last_login_ip"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+type pluginPermissionResponse struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Group       string `json:"group"`
+	PluginID    string `json:"plugin_id"`
+	Scope       string `json:"scope"`
+	RiskLevel   string `json:"risk_level"`
+}
+
+func buildRoleResponse(role model.AdminRole) roleResponse {
+	permissions := make([]string, 0)
+	if role.Permissions != "" {
+		_ = json.Unmarshal([]byte(role.Permissions), &permissions)
+	}
+	return roleResponse{
+		ID:          role.ID,
+		Name:        role.Name,
+		Description: role.Description,
+		Permissions: permissions,
+		IsSystem:    role.IsSystem,
+		Status:      role.Status,
+		CreatedAt:   role.CreatedAt,
+		UpdatedAt:   role.UpdatedAt,
+	}
+}
+
+func buildRoleResponses(roles []model.AdminRole) []roleResponse {
+	items := make([]roleResponse, 0, len(roles))
+	for _, role := range roles {
+		items = append(items, buildRoleResponse(role))
+	}
+	return items
+}
+
+func buildAdminResponse(admin model.Admin) adminResponse {
+	roleName := ""
+	if admin.Role != nil {
+		roleName = admin.Role.Name
+	}
+	return adminResponse{
+		ID:          admin.ID,
+		Username:    admin.Username,
+		Email:       admin.Email,
+		Nickname:    admin.Nickname,
+		RoleID:      admin.RoleID,
+		RoleName:    roleName,
+		Enable2FA:   admin.Enable2FA,
+		Status:      admin.Status,
+		LastLoginAt: admin.LastLoginAt,
+		LastLoginIP: admin.LastLoginIP,
+		CreatedAt:   admin.CreatedAt,
+		UpdatedAt:   admin.UpdatedAt,
+	}
+}
+
+func buildAdminResponses(admins []model.Admin) []adminResponse {
+	items := make([]adminResponse, 0, len(admins))
+	for _, admin := range admins {
+		items = append(items, buildAdminResponse(admin))
+	}
+	return items
+}
+
+func pluginPermissionToModel(item pluginapi.PermissionDeclaration) model.Permission {
+	group := item.Namespace
+	if group == "" {
+		group = "插件权限"
+	} else {
+		group = "插件权限：" + group
+	}
+	name := item.Title
+	if name == "" {
+		name = item.Key
+	}
+	return model.Permission{
+		Code:        item.Key,
+		Name:        name,
+		Description: item.Description,
+		Group:       group,
+	}
+}
+
+func buildPluginPermissionResponses(items []pluginapi.PermissionDeclaration) []pluginPermissionResponse {
+	permissions := make([]pluginPermissionResponse, 0, len(items))
+	for _, item := range items {
+		modelPerm := pluginPermissionToModel(item)
+		permissions = append(permissions, pluginPermissionResponse{
+			Code:        modelPerm.Code,
+			Name:        modelPerm.Name,
+			Description: modelPerm.Description,
+			Group:       modelPerm.Group,
+			PluginID:    item.Namespace,
+			Scope:       item.Scope,
+			RiskLevel:   item.RiskLevel,
+		})
+	}
+	return permissions
+}
+
+func syncPluginPermissionsToRoleService() []pluginapi.PermissionDeclaration {
+	if RoleSvc == nil {
+		return nil
+	}
+	if PluginSvc == nil {
+		RoleSvc.SetExtraPermissions(nil)
+		return nil
+	}
+	pluginPermissions := PluginSvc.Permissions()
+	extra := make([]model.Permission, 0, len(pluginPermissions))
+	for _, item := range pluginPermissions {
+		extra = append(extra, pluginPermissionToModel(item))
+	}
+	RoleSvc.SetExtraPermissions(extra)
+	return pluginPermissions
+}
 
 // AdminGetRoles 获取所有角色
 func AdminGetRoles(c *gin.Context) {
@@ -23,7 +169,7 @@ func AdminGetRoles(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{"success": true, "data": roles})
+	c.JSON(200, gin.H{"success": true, "data": buildRoleResponses(roles)})
 }
 
 // AdminGetRole 获取角色详情
@@ -45,7 +191,7 @@ func AdminGetRole(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{"success": true, "data": role})
+	c.JSON(200, gin.H{"success": true, "data": buildRoleResponse(*role)})
 }
 
 // AdminCreateRole 创建角色
@@ -54,6 +200,7 @@ func AdminCreateRole(c *gin.Context) {
 		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
 		return
 	}
+	syncPluginPermissionsToRoleService()
 
 	var req struct {
 		Name        string   `json:"name" binding:"required"`
@@ -78,7 +225,7 @@ func AdminCreateRole(c *gin.Context) {
 		LogSvc.LogAdminActionSimple(adminUsername.(string), "创建角色", "role", "", req, c.ClientIP(), c.GetHeader("User-Agent"))
 	}
 
-	c.JSON(200, gin.H{"success": true, "data": role})
+	c.JSON(200, gin.H{"success": true, "data": buildRoleResponse(*role)})
 }
 
 // AdminUpdateRole 更新角色
@@ -87,6 +234,7 @@ func AdminUpdateRole(c *gin.Context) {
 		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
 		return
 	}
+	syncPluginPermissionsToRoleService()
 
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -160,14 +308,17 @@ func AdminGetPermissions(c *gin.Context) {
 		return
 	}
 
+	pluginPermissions := syncPluginPermissionsToRoleService()
 	permissions := RoleSvc.GetAllPermissions()
 	groups := RoleSvc.GetPermissionGroups()
 
 	c.JSON(200, gin.H{
-		"success":     true,
-		"permissions": permissions,
-		"groups":      groups,
-		"templates":   model.PermissionTemplates,
+		"success":            true,
+		"permissions":        permissions,
+		"host_permissions":   model.AllPermissions,
+		"plugin_permissions": buildPluginPermissionResponses(pluginPermissions),
+		"groups":             groups,
+		"templates":          model.PermissionTemplates,
 	})
 }
 
@@ -198,7 +349,7 @@ func AdminGetAdmins(c *gin.Context) {
 
 	c.JSON(200, gin.H{
 		"success": true,
-		"data":    admins,
+		"data":    buildAdminResponses(admins),
 		"total":   total,
 		"page":    page,
 		"pages":   (total + int64(pageSize) - 1) / int64(pageSize),
@@ -224,7 +375,7 @@ func AdminGetAdmin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{"success": true, "data": admin})
+	c.JSON(200, gin.H{"success": true, "data": buildAdminResponse(*admin)})
 }
 
 // AdminCreateAdmin 创建管理员
@@ -259,7 +410,7 @@ func AdminCreateAdmin(c *gin.Context) {
 		LogSvc.LogAdminActionSimple(adminUsername.(string), "创建管理员", "admin", "", gin.H{"username": req.Username, "role_id": req.RoleID}, c.ClientIP(), c.GetHeader("User-Agent"))
 	}
 
-	c.JSON(200, gin.H{"success": true, "data": admin})
+	c.JSON(200, gin.H{"success": true, "data": buildAdminResponse(*admin)})
 }
 
 // AdminUpdateAdmin 更新管理员
@@ -406,12 +557,6 @@ func AdminGetMyPermissions(c *gin.Context) {
 // PermissionRequired 权限检查中间件
 func PermissionRequired(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if RoleSvc == nil {
-			c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
-			c.Abort()
-			return
-		}
-
 		adminUsername, exists := c.Get("admin_username")
 		if !exists {
 			c.JSON(401, gin.H{"success": false, "error": "未登录"})
@@ -424,6 +569,12 @@ func PermissionRequired(permission string) gin.HandlerFunc {
 		if exists && adminRole.(string) == "super_admin" {
 			// 超级管理员拥有所有权限
 			c.Next()
+			return
+		}
+
+		if RoleSvc == nil {
+			c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
+			c.Abort()
 			return
 		}
 

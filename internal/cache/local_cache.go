@@ -11,7 +11,6 @@ import (
 // LocalCache 本地内存缓存实现
 //
 // 基于 sync.Map 实现的本地内存缓存，支持 TTL 过期。
-// 用于 Redis 不可用时的降级方案，或单机部署场景。
 type LocalCache struct {
 	data    sync.Map
 	mu      sync.RWMutex

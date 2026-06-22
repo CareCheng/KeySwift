@@ -391,7 +391,7 @@ func generateErrorHTML(config ErrorPageConfig) string {
             <ul class="tips-list">
                 <li>检查网址是否正确</li>
                 <li>尝试刷新页面</li>
-                <li>如持续出现此问题，请联系客服</li>
+                <li>如持续出现此问题，请联系管理员</li>
             </ul>
         </div>
     </div>

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { Button, Card } from '@/components/ui'
 import { apiGet, apiPut } from '@/lib/api'
 import { User } from './types'
+import { PermissionGuard } from '@/contexts/PermissionContext'
 
 /**
  * 用户管理页面
@@ -38,6 +39,12 @@ export function UsersPage() {
     }
   }
 
+  const securityBadges = (user: User) => [
+    { label: '邮箱', active: user.email_verified },
+    { label: 'TOTP', active: user.enable_2fa },
+    { label: '支付密码', active: user.pay_password_set },
+  ]
+
   if (loading) return <div className="text-center py-12"><i className="fas fa-spinner fa-spin text-2xl text-primary-400" /></div>
 
   return (
@@ -57,6 +64,8 @@ export function UsersPage() {
                     <th className="text-left py-3 px-4 text-dark-400 font-medium">用户名</th>
                     <th className="text-left py-3 px-4 text-dark-400 font-medium">邮箱</th>
                     <th className="text-left py-3 px-4 text-dark-400 font-medium">手机</th>
+                    <th className="text-left py-3 px-4 text-dark-400 font-medium">安全状态</th>
+                    <th className="text-left py-3 px-4 text-dark-400 font-medium">订单/余额</th>
                     <th className="text-left py-3 px-4 text-dark-400 font-medium">状态</th>
                     <th className="text-left py-3 px-4 text-dark-400 font-medium">注册时间</th>
                     <th className="text-left py-3 px-4 text-dark-400 font-medium">操作</th>
@@ -70,15 +79,33 @@ export function UsersPage() {
                       <td className="py-3 px-4 text-dark-300">{user.email || '-'}</td>
                       <td className="py-3 px-4 text-dark-300">{user.phone || '-'}</td>
                       <td className="py-3 px-4">
+                        <div className="flex flex-wrap gap-1">
+                          {securityBadges(user).map((badge) => (
+                            <span
+                              key={badge.label}
+                              className={`px-2 py-1 rounded text-xs ${badge.active ? 'bg-blue-500/20 text-blue-300' : 'bg-dark-700 text-dark-500'}`}
+                            >
+                              {badge.label}{badge.active ? '已启用' : '未启用'}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-dark-300 text-sm">
+                        <div>订单 {user.order_count || 0} / 已付 {user.paid_order_count || 0}</div>
+                        <div className="text-emerald-400">余额 ¥{(user.available_balance || 0).toFixed(2)}</div>
+                      </td>
+                      <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded text-xs ${user.status === 1 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
                           {user.status === 1 ? '正常' : '禁用'}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-dark-300 text-sm">{user.created_at}</td>
                       <td className="py-3 px-4">
-                        <Button size="sm" variant="ghost" onClick={() => toggleUserStatus(user)}>
-                          {user.status === 1 ? '禁用' : '启用'}
-                        </Button>
+                        <PermissionGuard permission="user:edit">
+                          <Button size="sm" variant="ghost" onClick={() => toggleUserStatus(user)}>
+                            {user.status === 1 ? '禁用' : '启用'}
+                          </Button>
+                        </PermissionGuard>
                       </td>
                     </tr>
                   ))}
@@ -122,18 +149,40 @@ export function UsersPage() {
                       <i className="fas fa-clock w-4 text-center" />
                       <span className="text-dark-500 text-xs">{user.created_at}</span>
                     </div>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {securityBadges(user).map((badge) => (
+                        <span
+                          key={badge.label}
+                          className={`px-2 py-1 rounded text-xs ${badge.active ? 'bg-blue-500/20 text-blue-300' : 'bg-dark-700 text-dark-500'}`}
+                        >
+                          {badge.label}{badge.active ? '已启用' : '未启用'}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                      <div className="rounded bg-dark-800/60 p-2">
+                        <div className="text-dark-500">订单</div>
+                        <div className="text-dark-200">{user.order_count || 0} 笔，已付 {user.paid_order_count || 0}</div>
+                      </div>
+                      <div className="rounded bg-dark-800/60 p-2">
+                        <div className="text-dark-500">余额</div>
+                        <div className="text-emerald-400">¥{(user.available_balance || 0).toFixed(2)}</div>
+                      </div>
+                    </div>
                   </div>
                   {/* 操作按钮 */}
                   <div className="pt-2 border-t border-dark-600/50">
-                    <Button 
-                      size="sm" 
-                      variant={user.status === 1 ? 'ghost' : 'secondary'} 
-                      onClick={() => toggleUserStatus(user)}
-                      className="w-full"
-                    >
-                      <i className={`fas fa-${user.status === 1 ? 'ban' : 'check'} mr-2`} />
-                      {user.status === 1 ? '禁用用户' : '启用用户'}
-                    </Button>
+                    <PermissionGuard permission="user:edit">
+                      <Button
+                        size="sm"
+                        variant={user.status === 1 ? 'ghost' : 'secondary'}
+                        onClick={() => toggleUserStatus(user)}
+                        className="w-full"
+                      >
+                        <i className={`fas fa-${user.status === 1 ? 'ban' : 'check'} mr-2`} />
+                        {user.status === 1 ? '禁用用户' : '启用用户'}
+                      </Button>
+                    </PermissionGuard>
                   </div>
                 </div>
               ))}

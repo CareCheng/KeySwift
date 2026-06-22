@@ -13,12 +13,18 @@ import (
 
 // RoleService 角色权限服务
 type RoleService struct {
-	repo *repository.Repository
+	repo             *repository.Repository
+	extraPermissions []model.Permission
 }
 
 // NewRoleService 创建角色权限服务
 func NewRoleService(repo *repository.Repository) *RoleService {
 	return &RoleService{repo: repo}
+}
+
+// SetExtraPermissions 设置当前插件等运行时声明的权限点。
+func (s *RoleService) SetExtraPermissions(permissions []model.Permission) {
+	s.extraPermissions = append([]model.Permission(nil), permissions...)
 }
 
 // InitDefaultRoles 初始化默认角色
@@ -54,15 +60,13 @@ func (s *RoleService) InitDefaultRoles() error {
 	normalPerms := []string{
 		"dashboard:view",
 		"product:view", "product:create", "product:edit",
+		"category:view", "category:create", "category:edit",
 		"order:view", "order:edit",
 		"user:view",
-		"coupon:view", "coupon:create", "coupon:edit",
-		"announcement:view", "announcement:create", "announcement:edit",
-		"category:view",
-		"support:view",
-		"faq:view",
-		"review:view", "review:reply",
-		"stats:view",
+		"balance:view", "balance:adjust",
+		"settings:view",
+		"plugin:view",
+		"log:view",
 	}
 	normalPermsJSON, _ := json.Marshal(normalPerms)
 
@@ -77,40 +81,14 @@ func (s *RoleService) InitDefaultRoles() error {
 		return err
 	}
 
-	// 创建客服角色
-	supportPerms := []string{
-		"dashboard:view",
-		"order:view",
-		"user:view",
-		"support:view",
-		"faq:view",
-		"knowledge:view",
-		"review:view", "review:reply",
-	}
-	supportPermsJSON, _ := json.Marshal(supportPerms)
-
-	supportRole := &model.AdminRole{
-		Name:        "support",
-		Description: "客服人员，处理用户咨询和工单",
-		Permissions: string(supportPermsJSON),
-		IsSystem:    true,
-		Status:      1,
-	}
-	if err := db.Create(supportRole).Error; err != nil {
-		return err
-	}
-
 	// 创建运营角色
 	operatorPerms := []string{
 		"dashboard:view",
 		"product:view", "product:create", "product:edit",
-		"order:view",
-		"coupon:view", "coupon:create", "coupon:edit",
-		"announcement:view", "announcement:create", "announcement:edit",
 		"category:view", "category:create", "category:edit",
-		"faq:view", "faq:create", "faq:edit",
-		"review:view", "review:reply",
-		"stats:view",
+		"order:view",
+		"user:view",
+		"balance:view",
 	}
 	operatorPermsJSON, _ := json.Marshal(operatorPerms)
 
@@ -122,6 +100,17 @@ func (s *RoleService) InitDefaultRoles() error {
 		Status:      1,
 	}
 	return db.Create(operatorRole).Error
+}
+
+func (s *RoleService) permissionMap() map[string]bool {
+	permMap := make(map[string]bool)
+	for _, p := range model.AllPermissions {
+		permMap[p.Code] = true
+	}
+	for _, p := range s.extraPermissions {
+		permMap[p.Code] = true
+	}
+	return permMap
 }
 
 // GetAllRoles 获取所有角色
@@ -156,10 +145,7 @@ func (s *RoleService) CreateRole(name, description string, permissions []string)
 
 	// 验证权限代码
 	validPerms := make([]string, 0)
-	permMap := make(map[string]bool)
-	for _, p := range model.AllPermissions {
-		permMap[p.Code] = true
-	}
+	permMap := s.permissionMap()
 	for _, p := range permissions {
 		if permMap[p] {
 			validPerms = append(validPerms, p)
@@ -200,10 +186,7 @@ func (s *RoleService) UpdateRole(id uint, name, description string, permissions 
 
 	// 验证权限代码
 	validPerms := make([]string, 0)
-	permMap := make(map[string]bool)
-	for _, p := range model.AllPermissions {
-		permMap[p.Code] = true
-	}
+	permMap := s.permissionMap()
 	for _, p := range permissions {
 		if permMap[p] {
 			validPerms = append(validPerms, p)
@@ -277,12 +260,18 @@ func (s *RoleService) HasPermission(roleID uint, permission string) bool {
 
 // GetAllPermissions 获取所有权限定义
 func (s *RoleService) GetAllPermissions() []model.Permission {
-	return model.AllPermissions
+	permissions := append([]model.Permission(nil), model.AllPermissions...)
+	permissions = append(permissions, s.extraPermissions...)
+	return permissions
 }
 
 // GetPermissionGroups 获取按分组整理的权限
 func (s *RoleService) GetPermissionGroups() map[string][]model.Permission {
-	return model.GetPermissionGroups()
+	groups := make(map[string][]model.Permission)
+	for _, p := range s.GetAllPermissions() {
+		groups[p.Group] = append(groups[p.Group], p)
+	}
+	return groups
 }
 
 // ==================== 管理员管理 ====================
@@ -311,6 +300,9 @@ func (s *RoleService) GetAdminByID(id uint) (*model.Admin, error) {
 func (s *RoleService) GetAdminByUsername(username string) (*model.Admin, error) {
 	var admin model.Admin
 	err := s.repo.GetDB().Preload("Role").Where("username = ?", username).First(&admin).Error
+	if err != nil {
+		return nil, err
+	}
 	return &admin, err
 }
 
@@ -469,6 +461,39 @@ func (s *RoleService) VerifyAdminPassword(username, password string) (*model.Adm
 	}
 
 	return admin, nil
+}
+
+// EnableAdmin2FA 启用管理员两步验证。
+func (s *RoleService) EnableAdmin2FA(username, secret string) error {
+	admin, err := s.GetAdminByUsername(username)
+	if err != nil {
+		return errors.New("管理员不存在")
+	}
+
+	admin.Enable2FA = true
+	admin.TOTPSecret = secret
+	return s.repo.GetDB().Select("Enable2FA", "TOTPSecret").Save(admin).Error
+}
+
+// DisableAdmin2FA 禁用管理员两步验证。
+func (s *RoleService) DisableAdmin2FA(username string) error {
+	admin, err := s.GetAdminByUsername(username)
+	if err != nil {
+		return errors.New("管理员不存在")
+	}
+
+	admin.Enable2FA = false
+	admin.TOTPSecret = ""
+	return s.repo.GetDB().Select("Enable2FA", "TOTPSecret").Save(admin).Error
+}
+
+// GetAdmin2FAStatus 获取管理员两步验证状态。
+func (s *RoleService) GetAdmin2FAStatus(username string) (bool, string, error) {
+	admin, err := s.GetAdminByUsername(username)
+	if err != nil {
+		return false, "", err
+	}
+	return admin.Enable2FA, admin.TOTPSecret, nil
 }
 
 // UpdateAdminLoginInfo 更新管理员登录信息

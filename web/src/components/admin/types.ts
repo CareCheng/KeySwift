@@ -51,23 +51,6 @@ export interface Category {
   status: number
 }
 
-// 优惠券
-export interface Coupon {
-  id: number
-  code: string
-  name: string
-  type: string
-  value: number
-  min_amount: number
-  max_discount: number
-  total_count: number
-  used_count: number
-  per_user_limit: number
-  status: number
-  start_at: string
-  end_at: string
-}
-
 // 订单
 export interface Order {
   id: number
@@ -88,29 +71,15 @@ export interface User {
   username: string
   email: string
   phone: string
+  email_verified: boolean
+  enable_2fa: boolean
+  pay_password_set: boolean
   status: number
-  created_at: string
-}
-
-// 公告
-export interface Announcement {
-  id: number
-  title: string
-  content: string
-  type: string
-  status: number
-  sort_order: number
-  created_at: string
-}
-
-// 备份
-export interface Backup {
-  id: number
-  filename: string
-  file_size_text: string
-  db_type: string
-  remark: string
-  created_by: string
+  last_login_at: string
+  last_login_ip: string
+  order_count: number
+  paid_order_count: number
+  available_balance: number
   created_at: string
 }
 
@@ -131,12 +100,7 @@ export interface Log {
 
 // 支付配置
 export interface PaymentConfig {
-  alipay_f2f?: { enabled: boolean; app_id: string; has_private_key: boolean; has_public_key: boolean; notify_url: string }
-  wechat_pay?: { enabled: boolean; app_id: string; mch_id: string; has_api_key: boolean; notify_url: string }
-  yi_pay?: { enabled: boolean; api_url: string; pid: string; has_key: boolean; notify_url: string; return_url: string }
-  paypal?: { enabled: boolean; sandbox: boolean; client_id: string; has_client_secret: boolean; currency: string; return_url: string; cancel_url: string }
-  stripe?: { enabled: boolean; publishable_key: string; has_secret_key: boolean; has_webhook_secret: boolean; currency: string }
-  usdt?: { enabled: boolean; network: string; wallet_address: string; api_provider: string; has_api_key: boolean; has_api_secret: boolean; has_webhook_secret: boolean; exchange_rate: number; min_amount: number; confirmations: number }
+  balance?: { enabled: boolean; builtin: boolean; name: string }
 }
 
 // 邮箱配置
@@ -170,22 +134,18 @@ export interface Settings {
   admin_suffix: string
   server_port: number
   enable_login: boolean
+  enable_captcha: boolean
   admin_username: string
   enable_2fa: boolean
   totp_secret: string
+  enable_session_timeout: boolean
+  session_timeout: number
+  user_allow_register: boolean
+  user_enable_captcha: boolean
+  user_enable_2fa: boolean
+  user_require_email_verification: boolean
+  user_enable_session_timeout: boolean
+  user_session_timeout: number
 }
 
-// 页面配置（精简版 - 合并相关功能）
-export const PAGE_CONFIG: Record<string, { title: string; icon: string; permissions?: string[] }> = {
-  dashboard: { title: '仪表盘', icon: '📊', permissions: ['dashboard:view'] },
-  products: { title: '商品管理', icon: '📦', permissions: ['product:view'] },
-  categories: { title: '分类管理', icon: '📁', permissions: ['category:view'] },
-  coupons: { title: '优惠券', icon: '🎫', permissions: ['coupon:view'] },
-  orders: { title: '订单管理', icon: '📋', permissions: ['order:view'] },
-  users: { title: '用户管理', icon: '👥', permissions: ['user:view', 'admin:view', 'role:view'] },
-  support: { title: '客服管理', icon: '🎧', permissions: ['support:view'] },
-  content: { title: '内容管理', icon: '📢', permissions: ['announcement:view', 'faq:view', 'knowledge:view', 'review:view'] },
-  homepage: { title: '首页配置', icon: '🏠', permissions: ['settings:view'] },
-  system: { title: '系统管理', icon: '🖥️', permissions: ['log:view', 'backup:view', 'stats:view', 'monitor:view'] },
-  config: { title: '系统配置', icon: '⚙️', permissions: ['settings:view', 'settings:payment', 'settings:email', 'settings:database'] },
-}
+export { HOST_ADMIN_PAGES as PAGE_CONFIG } from '@/lib/pluginRegistry'

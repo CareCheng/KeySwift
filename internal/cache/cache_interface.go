@@ -6,7 +6,7 @@ import "time"
 
 // Cache 缓存接口
 //
-// 定义统一的缓存操作接口，支持本地缓存和 Redis 缓存两种实现。
+// 定义统一的本地缓存操作接口。
 type Cache interface {
 	// Get 获取缓存值
 	Get(key string) (interface{}, bool)
@@ -41,7 +41,7 @@ type Cache interface {
 	// Decr 原子自减
 	Decr(key string) (int64, error)
 
-	// Keys 获取匹配模式的所有键（Redis支持通配符，本地缓存支持前缀匹配）
+	// Keys 获取匹配模式的所有键（本地缓存支持前缀匹配）
 	Keys(pattern string) ([]string, error)
 
 	// Ping 健康检查

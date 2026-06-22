@@ -3,25 +3,16 @@
 package cache
 
 import (
-	"log"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
 // CacheManager 缓存管理器
 //
-// 统一管理 Redis 和本地缓存，提供自动故障转移能力。
-// 通过 GetCacheManager() 获取全局单例实例。
+// 统一管理本地内存缓存，通过 GetCacheManager() 获取全局单例实例。
 type CacheManager struct {
-	redis        *RedisCache
-	local        *LocalCache
-	redisEnabled bool
-	redisHealthy atomic.Bool
-	config       *RedisConfig
-	metrics      *CacheMetrics
-	mu           sync.RWMutex
-	closeCh      chan struct{}
+	local   *LocalCache
+	metrics *CacheMetrics
 }
 
 // 全局缓存管理器实例
@@ -31,48 +22,14 @@ var (
 )
 
 // InitCacheManager 初始化缓存管理器
-//
-// 根据配置初始化 Redis 或本地缓存。
-// 如果 cfg 为 nil 或 Redis 未启用，只使用本地缓存。
-func InitCacheManager(cfg *RedisConfig) error {
-	var initErr error
-
+func InitCacheManager() error {
 	managerOnce.Do(func() {
 		globalManager = &CacheManager{
 			local:   NewLocalCache(),
 			metrics: NewCacheMetrics(),
-			closeCh: make(chan struct{}),
 		}
-
-		if cfg != nil && cfg.Enabled {
-			globalManager.config = cfg
-			globalManager.redisEnabled = true
-
-			// 设置键前缀
-			if cfg.KeyPrefix != "" {
-				SetKeyPrefix(cfg.KeyPrefix)
-			}
-
-			// 尝试连接 Redis
-			redisCache, err := NewRedisCache(cfg)
-			if err != nil {
-				log.Printf("警告: Redis 连接失败，使用本地缓存: %v", err)
-				globalManager.redisEnabled = false
-				globalManager.redisHealthy.Store(false)
-			} else {
-				globalManager.redis = redisCache
-				globalManager.redisHealthy.Store(true)
-				log.Printf("Redis 缓存已启用 (模式: %s)", cfg.Mode)
-			}
-		} else {
-			log.Println("Redis 未配置，使用本地缓存")
-		}
-
-		// 启动健康检查协程
-		go globalManager.healthCheckLoop()
 	})
-
-	return initErr
+	return nil
 }
 
 // GetCacheManager 获取全局缓存管理器实例
@@ -90,39 +47,8 @@ func GetManager() *CacheManager {
 	return globalManager
 }
 
-// healthCheckLoop 健康检查协程
-func (cm *CacheManager) healthCheckLoop() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if cm.redisEnabled && cm.redis != nil {
-				if err := cm.redis.Ping(); err != nil {
-					if cm.redisHealthy.Load() {
-						log.Printf("警告: Redis 连接异常，已降级到本地缓存: %v", err)
-						cm.redisHealthy.Store(false)
-						cm.metrics.RecordFailover()
-					}
-				} else {
-					if !cm.redisHealthy.Load() {
-						log.Println("Redis 连接已恢复")
-						cm.redisHealthy.Store(true)
-					}
-				}
-			}
-		case <-cm.closeCh:
-			return
-		}
-	}
-}
-
 // getActiveCache 获取当前活跃的缓存实现
 func (cm *CacheManager) getActiveCache() Cache {
-	if cm.redisEnabled && cm.redisHealthy.Load() && cm.redis != nil {
-		return cm.redis
-	}
 	return cm.local
 }
 
@@ -160,10 +86,6 @@ func (cm *CacheManager) SetString(key string, value string, ttl time.Duration) e
 
 // Delete 删除缓存
 func (cm *CacheManager) Delete(key string) error {
-	// 如果两个缓存都存在，同时删除
-	if cm.redis != nil && cm.redisHealthy.Load() {
-		cm.redis.Delete(key)
-	}
 	return cm.local.Delete(key)
 }
 
@@ -240,16 +162,6 @@ func (cm *CacheManager) GetOrLoad(key string, loader func() (interface{}, error)
 	return data, nil
 }
 
-// IsRedisEnabled 检查 Redis 是否已启用
-func (cm *CacheManager) IsRedisEnabled() bool {
-	return cm.redisEnabled
-}
-
-// IsRedisHealthy 检查 Redis 是否健康
-func (cm *CacheManager) IsRedisHealthy() bool {
-	return cm.redisHealthy.Load()
-}
-
 // Ping 健康检查
 func (cm *CacheManager) Ping() error {
 	return cm.getActiveCache().Ping()
@@ -267,12 +179,6 @@ func (cm *CacheManager) GetLocalCacheSize() int {
 
 // FlushAll 清空所有缓存（危险操作）
 func (cm *CacheManager) FlushAll() error {
-	if cm.redis != nil && cm.redisHealthy.Load() {
-		if err := cm.redis.FlushDB(); err != nil {
-			return err
-		}
-	}
-	// 重新创建本地缓存
 	cm.local.Close()
 	cm.local = NewLocalCache()
 	return nil
@@ -280,11 +186,6 @@ func (cm *CacheManager) FlushAll() error {
 
 // Close 关闭缓存管理器
 func (cm *CacheManager) Close() error {
-	close(cm.closeCh)
-
-	if cm.redis != nil {
-		cm.redis.Close()
-	}
 	cm.local.Close()
 	return nil
 }

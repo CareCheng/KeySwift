@@ -3,6 +3,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -121,5 +123,53 @@ func UserOrders(c *gin.Context) {
 		"orders":  orders,
 		"total":   total,
 		"page":    page,
+	})
+}
+
+// GetUserKamis 获取用户已购卡密
+func GetUserKamis(c *gin.Context) {
+	if OrderSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	orders, _, err := OrderSvc.GetUserOrders(userID, 1, 1000)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	type userKamiItem struct {
+		OrderNo      string     `json:"order_no"`
+		ProductName  string     `json:"product_name"`
+		KamiCode     string     `json:"kami_code"`
+		Quantity     int        `json:"quantity"`
+		Status       int        `json:"status"`
+		PaymentTime  *time.Time `json:"payment_time,omitempty"`
+		CreatedAt    time.Time  `json:"created_at"`
+		UpdatedAt    time.Time  `json:"updated_at"`
+	}
+
+	kamis := make([]userKamiItem, 0, len(orders))
+	for _, order := range orders {
+		if order.KamiCode == "" || order.Status != 2 {
+			continue
+		}
+		kamis = append(kamis, userKamiItem{
+			OrderNo:     order.OrderNo,
+			ProductName: order.ProductName,
+			KamiCode:    order.KamiCode,
+			Quantity:    order.Quantity,
+			Status:      order.Status,
+			PaymentTime: order.PaymentTime,
+			CreatedAt:   order.CreatedAt,
+			UpdatedAt:   order.UpdatedAt,
+		})
+	}
+
+	c.JSON(200, gin.H{
+		"success": true,
+		"kamis":   kamis,
 	})
 }

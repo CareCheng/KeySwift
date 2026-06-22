@@ -1,13 +1,16 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
-import { Navbar, Footer } from '@/components/layout'
 import { Button, Badge, Card } from '@/components/ui'
+import { UserShell } from '@/components/layout/UserShell'
+import { UserRouteLink } from '@/components/layout/UserRouteLink'
 import { apiGet } from '@/lib/api'
 import { useAppStore } from '@/lib/store'
 import { formatDateTime, getOrderStatus, copyToClipboard, cn } from '@/lib/utils'
+import { getCachedUserInfo, getUserInfo, updateCachedUserInfo } from '@/lib/userData'
+import type { TwoFAStatus, UserInfo } from '@/types/user'
 import {
   BindEmailModal,
   ChangeEmailModal,
@@ -17,26 +20,9 @@ import {
   ChangeMethodModal,
 } from './modals/index'
 import {
-  DevicesTab,
   KamisTab,
   WalletTab,
-  FavoritesTab,
-  InvoicesTab,
-  AccountTab,
-  CartTab,
 } from './tabs'
-
-/**
- * 用户信息接口
- */
-interface UserInfo {
-  id: number
-  username: string
-  email: string
-  email_verified: boolean
-  phone: string
-  created_at: string
-}
 
 /**
  * 订单接口
@@ -52,37 +38,31 @@ interface Order {
 }
 
 /**
- * 2FA 状态接口
+ * 用户中心视图。
+ * 由用户端主入口和旧路径直达共同复用。
  */
-interface TwoFAStatus {
-  enabled: boolean
-  has_totp: boolean
-  prefer_email_auth: boolean
-}
-
-/**
- * 用户中心页面
- */
-export default function UserCenterPage() {
+export function UserCenterView() {
+  const router = useRouter()
   const { user, setUser, twoFAStatus, setTwoFAStatus } = useAppStore()
   const [activeTab, setActiveTab] = useState('profile')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !getCachedUserInfo() && !user)
   const [orders, setOrders] = useState<Order[]>([])
 
   // 加载用户信息
   useEffect(() => {
     const loadUserInfo = async () => {
-      const res = await apiGet<{ user: typeof user }>('/api/user/info')
-      if (res.success && res.user) {
-        setUser(res.user)
+      const userInfo = await getUserInfo()
+      if (userInfo) {
+        setUser(userInfo)
+        updateCachedUserInfo(userInfo)
         await load2FAStatus()
       } else {
-        window.location.href = '/login/'
+        router.push('/login/')
       }
       setLoading(false)
     }
     loadUserInfo()
-  }, [setUser])
+  }, [setUser, router])
 
   // 加载 2FA 状态
   const load2FAStatus = async () => {
@@ -116,14 +96,9 @@ export default function UserCenterPage() {
   const tabs = [
     { id: 'profile', label: '个人信息', icon: 'fa-user' },
     { id: 'orders', label: '我的订单', icon: 'fa-bag-shopping' },
-    { id: 'cart', label: '购物车', icon: 'fa-cart-shopping' },
     { id: 'kamis', label: '我的卡密', icon: 'fa-key' },
     { id: 'wallet', label: '我的钱包', icon: 'fa-wallet' },
-    { id: 'favorites', label: '我的收藏', icon: 'fa-heart' },
-    { id: 'devices', label: '设备管理', icon: 'fa-laptop' },
-    { id: 'invoices', label: '我的发票', icon: 'fa-file-invoice' },
     { id: 'security', label: '安全设置', icon: 'fa-shield-halved' },
-    { id: 'account', label: '账户设置', icon: 'fa-gear' },
   ]
 
   if (loading) {
@@ -135,9 +110,7 @@ export default function UserCenterPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Navbar />
-
+    <>
       <main className="flex-1 py-8 px-4">
         <div className="max-w-5xl mx-auto">
           {/* 标签页导航 - 支持滚动，隐藏滚动条 */}
@@ -165,7 +138,10 @@ export default function UserCenterPage() {
           {activeTab === 'profile' && user && (
             <ProfileTab user={user} onUpdate={() => {
               apiGet<{ user: typeof user }>('/api/user/info').then(res => {
-                if (res.success && res.user) setUser(res.user)
+                if (res.success && res.user) {
+                  setUser(res.user)
+                  updateCachedUserInfo(res.user)
+                }
               })
             }} />
           )}
@@ -173,23 +149,11 @@ export default function UserCenterPage() {
           {/* 我的订单 */}
           {activeTab === 'orders' && <OrdersTab orders={orders} />}
 
-          {/* 购物车 */}
-          {activeTab === 'cart' && <CartTab />}
-
           {/* 我的卡密 */}
           {activeTab === 'kamis' && <KamisTab />}
 
           {/* 我的钱包 */}
           {activeTab === 'wallet' && <WalletTab />}
-
-          {/* 我的收藏 */}
-          {activeTab === 'favorites' && <FavoritesTab />}
-
-          {/* 设备管理 */}
-          {activeTab === 'devices' && <DevicesTab />}
-
-          {/* 我的发票 */}
-          {activeTab === 'invoices' && <InvoicesTab />}
 
           {/* 安全设置 */}
           {activeTab === 'security' && user && twoFAStatus && (
@@ -199,14 +163,20 @@ export default function UserCenterPage() {
               onUpdate={load2FAStatus}
             />
           )}
-
-          {/* 账户设置 */}
-          {activeTab === 'account' && <AccountTab />}
         </div>
       </main>
+    </>
+  )
+}
 
-      <Footer />
-    </div>
+/**
+ * 用户中心旧路径直达入口。
+ */
+export default function UserCenterPage() {
+  return (
+    <UserShell>
+      <UserCenterView />
+    </UserShell>
   )
 }
 
@@ -218,7 +188,7 @@ function ProfileTab({ user, onUpdate }: { user: UserInfo; onUpdate: () => void }
   const [showChangeEmail, setShowChangeEmail] = useState(false)
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+    <div>
       <Card title="基本信息" icon={<i className="fas fa-user" />}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <InfoItem label="用户名" value={user.username} />
@@ -270,7 +240,7 @@ function ProfileTab({ user, onUpdate }: { user: UserInfo; onUpdate: () => void }
         currentEmail={user.email || ''}
         onSuccess={onUpdate}
       />
-    </motion.div>
+    </div>
   )
 }
 
@@ -296,7 +266,7 @@ function OrdersTab({ orders }: { orders: Order[] }) {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+    <div>
       <Card title="订单列表" icon={<i className="fas fa-shopping-bag" />}>
         {orders.length === 0 ? (
           <div className="text-center py-12">
@@ -337,13 +307,14 @@ function OrdersTab({ orders }: { orders: Order[] }) {
                     </div>
                   )}
                   <div className="mt-3 flex justify-end">
-                    <a
-                      href={`/order/detail?order_no=${order.order_no}`}
+                    <UserRouteLink
+                      view="order-detail"
+                      params={{ order_no: order.order_no }}
                       className="text-primary-400 hover:text-primary-300 text-sm flex items-center gap-1"
                     >
                       查看详情
                       <i className="fas fa-chevron-right text-xs" />
-                    </a>
+                    </UserRouteLink>
                   </div>
                 </div>
               )
@@ -351,7 +322,7 @@ function OrdersTab({ orders }: { orders: Order[] }) {
           </div>
         )}
       </Card>
-    </motion.div>
+    </div>
   )
 }
 
@@ -390,7 +361,7 @@ function SecurityTab({
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+    <div className="space-y-6">
       {/* 修改密码 */}
       <Card title="修改密码" icon={<i className="fas fa-key" />}>
         <div className="security-card">
@@ -478,6 +449,6 @@ function SecurityTab({
         isUsingTOTP={isUsingTOTP}
         onSuccess={onUpdate}
       />
-    </motion.div>
+    </div>
   )
 }

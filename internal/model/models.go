@@ -13,15 +13,15 @@ type User struct {
 	Email             string         `gorm:"type:varchar(255);uniqueIndex" json:"email"`
 	PasswordHash      string         `gorm:"type:varchar(255)" json:"-"`
 	Phone             string         `gorm:"type:varchar(20)" json:"phone"`
-	EmailVerified     bool           `gorm:"default:false" json:"email_verified"`    // 邮箱是否已验证
-	Enable2FA         bool           `gorm:"default:false" json:"enable_2fa"`        // 是否启用两步验证
+	EmailVerified     bool           `gorm:"default:false" json:"email_verified"` // 邮箱是否已验证
+	Enable2FA         bool           `gorm:"default:false" json:"enable_2fa"`     // 是否启用两步验证
 	TOTPSecret        string         `gorm:"type:varchar(100)" json:"-"`
-	PreferEmailAuth   bool           `gorm:"default:true" json:"prefer_email_auth"`  // 登录时优先使用邮箱验证（否则使用TOTP）
-	PayPassword       string         `gorm:"type:varchar(255)" json:"-"`             // 支付密码（bcrypt加密）
-	PayPasswordSet    bool           `gorm:"default:false" json:"pay_password_set"`  // 是否已设置支付密码
-	PayPasswordErrors int            `gorm:"default:0" json:"-"`                     // 支付密码连续错误次数
-	PayPasswordLockAt *time.Time     `json:"-"`                                      // 支付密码锁定时间
-	Status            int            `gorm:"default:1" json:"status"`                // 1:正常 0:禁用
+	PreferEmailAuth   bool           `gorm:"default:true" json:"prefer_email_auth"` // 登录时优先使用邮箱验证（否则使用TOTP）
+	PayPassword       string         `gorm:"type:varchar(255)" json:"-"`            // 支付密码（bcrypt加密）
+	PayPasswordSet    bool           `gorm:"default:false" json:"pay_password_set"` // 是否已设置支付密码
+	PayPasswordErrors int            `gorm:"default:0" json:"-"`                    // 支付密码连续错误次数
+	PayPasswordLockAt *time.Time     `json:"-"`                                     // 支付密码锁定时间
+	Status            int            `gorm:"default:1" json:"status"`               // 1:正常 0:禁用
 	LastLoginAt       *time.Time     `json:"last_login_at"`
 	LastLoginIP       string         `gorm:"type:varchar(50)" json:"last_login_ip"`
 	CreatedAt         time.Time      `json:"created_at"`
@@ -40,37 +40,21 @@ type EmailVerifyCode struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// AdminUser 管理员用户模型
-type AdminUser struct {
-	ID           uint           `gorm:"primaryKey" json:"id"`
-	Username     string         `gorm:"type:varchar(100);uniqueIndex" json:"username"`
-	PasswordHash string         `gorm:"type:varchar(255)" json:"-"`
-	Enable2FA    bool           `gorm:"default:false" json:"enable_2fa"`
-	TOTPSecret   string         `gorm:"type:varchar(100)" json:"-"`
-	Role         string         `gorm:"type:varchar(50);default:'admin'" json:"role"`
-	LastLoginAt  *time.Time     `json:"last_login_at"`
-	LastLoginIP  string         `gorm:"type:varchar(50)" json:"last_login_ip"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
-	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
-}
-
 // Product 商品模型
 type Product struct {
 	ID           uint           `gorm:"primaryKey" json:"id"`
 	Name         string         `gorm:"type:varchar(200)" json:"name"`
-	Description  string         `gorm:"type:text" json:"description"`                      // 简短描述
-	Detail       string         `gorm:"type:text" json:"detail"`                           // 详细介绍（Markdown/HTML）
-	Specs        string         `gorm:"type:text" json:"specs"`                            // 规格参数（JSON格式）
-	Features     string         `gorm:"type:text" json:"features"`                         // 特性/卖点列表（JSON格式）
-	Tags         string         `gorm:"type:varchar(500)" json:"tags"`                     // 商品标签（逗号分隔）
+	Description  string         `gorm:"type:text" json:"description"`  // 简短描述
+	Detail       string         `gorm:"type:text" json:"detail"`       // 详细介绍（Markdown/HTML）
+	Specs        string         `gorm:"type:text" json:"specs"`        // 规格参数（JSON格式）
+	Features     string         `gorm:"type:text" json:"features"`     // 特性/卖点列表（JSON格式）
+	Tags         string         `gorm:"type:varchar(500)" json:"tags"` // 商品标签（逗号分隔）
 	Price        float64        `json:"price"`
 	Duration     int            `json:"duration"`                                          // 时长数值
 	DurationUnit string         `gorm:"type:varchar(20);default:'天'" json:"duration_unit"` // 天/周/月/年
 	Stock        int            `json:"stock"`                                             // 库存，-1表示无限
 	Status       int            `gorm:"default:1" json:"status"`                           // 1:上架 0:下架
 	SortOrder    int            `gorm:"default:0" json:"sort_order"`
-	ImageURL     string         `gorm:"type:varchar(500)" json:"image_url"`
 	CategoryID   uint           `gorm:"default:0" json:"category_id"`  // 分类ID
 	ProductType  int            `gorm:"default:1" json:"product_type"` // 商品类型：1手动卡密
 	CreatedAt    time.Time      `json:"created_at"`
@@ -80,31 +64,28 @@ type Product struct {
 
 // Order 订单模型
 type Order struct {
-	ID             uint           `gorm:"primaryKey" json:"id"`
-	OrderNo        string         `gorm:"type:varchar(64);uniqueIndex" json:"order_no"`
-	PaymentNo      string         `gorm:"type:varchar(100)" json:"payment_no"` // 支付订单号
-	UserID         uint           `gorm:"index" json:"user_id"`
-	Username       string         `gorm:"type:varchar(100)" json:"username"`
-	ProductID      uint           `json:"product_id"`
-	ProductName    string         `gorm:"type:varchar(200)" json:"product_name"`
-	Quantity       int            `gorm:"default:1" json:"quantity"`              // 购买数量
-	OriginalPrice  float64        `json:"original_price"`                         // 原价（锁定商品价格，单价*数量）
-	DiscountAmount float64        `gorm:"default:0" json:"discount_amount"`       // 优惠金额
-	Price          float64        `json:"price"`                                  // 实际应付金额
-	PaidAmount     float64        `gorm:"default:0" json:"paid_amount"`           // 实际支付金额（用于验证）
-	CouponID       uint           `gorm:"default:0" json:"coupon_id"`             // 使用的优惠券ID
-	CouponCode     string         `gorm:"type:varchar(50)" json:"coupon_code"`    // 使用的优惠券码
-	Duration       int            `json:"duration"`
-	DurationUnit   string         `gorm:"type:varchar(20)" json:"duration_unit"`
-	Status         int            `gorm:"default:0" json:"status"` // 0:待支付 1:已支付 2:已完成 3:已取消 4:已退款
-	PaymentMethod  string         `gorm:"type:varchar(50)" json:"payment_method"`
-	PaymentTime    *time.Time     `json:"payment_time"`
-	KamiCode       string         `gorm:"type:text" json:"kami_code"` // 生成的卡密（多个用换行分隔）
-	Remark         string         `gorm:"type:text" json:"remark"`
-	ClientIP       string         `gorm:"type:varchar(50)" json:"client_ip"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
+	ID            uint           `gorm:"primaryKey" json:"id"`
+	OrderNo       string         `gorm:"type:varchar(64);uniqueIndex" json:"order_no"`
+	PaymentNo     string         `gorm:"type:varchar(100)" json:"payment_no"` // 支付订单号
+	UserID        uint           `gorm:"index" json:"user_id"`
+	Username      string         `gorm:"type:varchar(100)" json:"username"`
+	ProductID     uint           `json:"product_id"`
+	ProductName   string         `gorm:"type:varchar(200)" json:"product_name"`
+	Quantity      int            `gorm:"default:1" json:"quantity"`    // 购买数量
+	OriginalPrice float64        `json:"original_price"`               // 原价（锁定商品价格，单价*数量）
+	Price         float64        `json:"price"`                        // 实际应付金额
+	PaidAmount    float64        `gorm:"default:0" json:"paid_amount"` // 实际支付金额（用于验证）
+	Duration      int            `json:"duration"`
+	DurationUnit  string         `gorm:"type:varchar(20)" json:"duration_unit"`
+	Status        int            `gorm:"default:0" json:"status"` // 0:待支付 1:已支付 2:已完成 3:已取消 4:已退款
+	PaymentMethod string         `gorm:"type:varchar(50)" json:"payment_method"`
+	PaymentTime   *time.Time     `json:"payment_time"`
+	KamiCode      string         `gorm:"type:text" json:"kami_code"` // 生成的卡密（多个用换行分隔）
+	Remark        string         `gorm:"type:text" json:"remark"`
+	ClientIP      string         `gorm:"type:varchar(50)" json:"client_ip"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // OrderStatus 订单状态常量
@@ -153,30 +134,29 @@ type EmailConfigDB struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// PaymentConfigDB 支付配置（数据库存储）
-type PaymentConfigDB struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	PaymentType string    `gorm:"type:varchar(50);uniqueIndex" json:"payment_type"` // alipay_f2f, wechat_pay, yi_pay, paypal
-	Enabled     bool      `gorm:"default:false" json:"enabled"`
-	ConfigJSON  string    `gorm:"type:text" json:"config_json"` // JSON格式存储具体配置
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-}
-
 // SystemConfigDB 系统配置（数据库存储）
 type SystemConfigDB struct {
-	ID                   uint      `gorm:"primaryKey" json:"id"`
-	SystemTitle          string    `gorm:"type:varchar(200)" json:"system_title"`            // 系统标题
-	AdminSuffix          string    `gorm:"type:varchar(100)" json:"admin_suffix"`            // 管理后台路径后缀
-	EnableLogin          bool      `gorm:"default:true" json:"enable_login"`                 // 是否启用登录验证
-	AdminUsername        string    `gorm:"type:varchar(100)" json:"admin_username"`          // 管理员用户名
-	AdminPassword        string    `gorm:"type:varchar(255)" json:"admin_password"`          // 管理员密码
-	Enable2FA            bool      `gorm:"default:false" json:"enable_2fa"`                  // 是否启用两步验证
-	TOTPSecret           string    `gorm:"type:varchar(100)" json:"totp_secret"`             // TOTP密钥
-	EnableWhitelist      bool      `gorm:"default:false" json:"enable_whitelist"`            // 是否启用IP白名单
-	IPWhitelist          string    `gorm:"type:text" json:"ip_whitelist"`                    // IP白名单（JSON数组格式）
-	CreatedAt            time.Time `json:"created_at"`
-	UpdatedAt            time.Time `json:"updated_at"`
+	ID                           uint      `gorm:"primaryKey" json:"id"`
+	SystemTitle                  string    `gorm:"type:varchar(200)" json:"system_title"`                // 系统标题
+	AdminSuffix                  string    `gorm:"type:varchar(100)" json:"admin_suffix"`                // 管理后台路径后缀
+	EnableLogin                  bool      `gorm:"default:true" json:"enable_login"`                     // 是否启用后台登录验证
+	EnableCaptcha                bool      `gorm:"default:true" json:"enable_captcha"`                   // 后台登录是否要求图形验证码
+	AdminUsername                string    `gorm:"type:varchar(100)" json:"admin_username"`              // 管理员用户名
+	AdminPassword                string    `gorm:"type:varchar(255)" json:"admin_password"`              // 管理员密码
+	Enable2FA                    bool      `gorm:"default:false" json:"enable_2fa"`                      // 后台是否启用两步验证
+	TOTPSecret                   string    `gorm:"type:varchar(100)" json:"totp_secret"`                 // 后台TOTP密钥
+	EnableSessionTimeout         bool      `gorm:"default:true" json:"enable_session_timeout"`           // 后台是否启用会话超时
+	SessionTimeout               int       `gorm:"default:60" json:"session_timeout"`                    // 后台会话超时分钟数
+	UserAllowRegister            bool      `gorm:"default:true" json:"user_allow_register"`              // 是否允许用户注册
+	UserEnableCaptcha            bool      `gorm:"default:true" json:"user_enable_captcha"`              // 用户登录/注册是否要求图形验证码
+	UserEnable2FA                bool      `gorm:"default:true" json:"user_enable_2fa"`                  // 是否允许用户使用两步验证
+	UserRequireEmailVerification bool      `gorm:"default:false" json:"user_require_email_verification"` // 注册是否要求邮箱验证码
+	UserEnableSessionTimeout     bool      `gorm:"default:true" json:"user_enable_session_timeout"`      // 用户侧是否启用会话超时
+	UserSessionTimeout           int       `gorm:"default:120" json:"user_session_timeout"`              // 用户侧会话超时分钟数
+	EnableWhitelist              bool      `gorm:"default:false" json:"enable_whitelist"`                // 是否启用IP白名单
+	IPWhitelist                  string    `gorm:"type:text" json:"ip_whitelist"`                        // IP白名单（JSON数组格式）
+	CreatedAt                    time.Time `json:"created_at"`
+	UpdatedAt                    time.Time `json:"updated_at"`
 }
 
 // LoginAttempt 登录尝试记录（用于登录失败锁定）
@@ -186,21 +166,6 @@ type LoginAttempt struct {
 	IP        string    `gorm:"type:varchar(50);index" json:"ip"`
 	Success   bool      `gorm:"default:false" json:"success"`
 	CreatedAt time.Time `json:"created_at"`
-}
-
-// Announcement 系统公告
-type Announcement struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	Title     string         `gorm:"type:varchar(200)" json:"title"`
-	Content   string         `gorm:"type:text" json:"content"`
-	Type      string         `gorm:"type:varchar(20);default:'info'" json:"type"` // info, warning, success, danger
-	Status    int            `gorm:"default:1" json:"status"`                     // 1:显示 0:隐藏
-	SortOrder int            `gorm:"default:0" json:"sort_order"`
-	StartAt   *time.Time     `json:"start_at"`
-	EndAt     *time.Time     `json:"end_at"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // ProductCategory 商品分类
@@ -213,55 +178,6 @@ type ProductCategory struct {
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
-}
-
-// Coupon 优惠券模型
-type Coupon struct {
-	ID            uint           `gorm:"primaryKey" json:"id"`
-	Code          string         `gorm:"type:varchar(50);uniqueIndex" json:"code"`    // 优惠券码
-	Name          string         `gorm:"type:varchar(100)" json:"name"`               // 优惠券名称
-	Type          string         `gorm:"type:varchar(20)" json:"type"`                // 类型: percent(折扣), fixed(固定金额), minus(满减)
-	Value         float64        `json:"value"`                                       // 优惠值（折扣百分比或金额）
-	MinAmount     float64        `gorm:"default:0" json:"min_amount"`                 // 最低消费金额
-	MaxDiscount   float64        `gorm:"default:0" json:"max_discount"`               // 最大优惠金额（0表示不限）
-	TotalCount    int            `gorm:"default:-1" json:"total_count"`               // 总数量（-1表示无限）
-	UsedCount     int            `gorm:"default:0" json:"used_count"`                 // 已使用数量
-	Stock         int            `gorm:"default:-1" json:"stock"`                     // 库存数量（-1表示无限）
-	PointsPrice   int            `gorm:"default:0" json:"points_price"`               // 积分兑换价格（0表示不可兑换）
-	PerUserLimit  int            `gorm:"default:1" json:"per_user_limit"`             // 每用户限用次数
-	ProductIDs    string         `gorm:"type:text" json:"product_ids"`                // 适用商品ID（逗号分隔，空表示全部）
-	CategoryIDs   string         `gorm:"type:text" json:"category_ids"`               // 适用分类ID（逗号分隔，空表示全部）
-	Description   string         `gorm:"type:varchar(500)" json:"description"`        // 优惠券描述
-	StartAt       *time.Time     `json:"start_at"`                                    // 生效时间
-	EndAt         *time.Time     `json:"end_at"`                                      // 失效时间
-	ExpireAt      *time.Time     `json:"expire_at"`                                   // 过期时间（用于积分兑换）
-	Status        int            `gorm:"default:1" json:"status"`                     // 状态: 1启用 0禁用
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
-}
-
-// CouponUsage 优惠券使用记录
-type CouponUsage struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	CouponID  uint      `gorm:"index" json:"coupon_id"`
-	UserID    uint      `gorm:"index" json:"user_id"`
-	OrderID   uint      `gorm:"index" json:"order_id"`
-	OrderNo   string    `gorm:"type:varchar(64)" json:"order_no"`
-	Discount  float64   `json:"discount"` // 实际优惠金额
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// DatabaseBackup 数据库备份记录
-type DatabaseBackup struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Filename  string    `gorm:"type:varchar(255)" json:"filename"`
-	FilePath  string    `gorm:"type:varchar(500)" json:"file_path"`
-	FileSize  int64     `json:"file_size"`
-	DBType    string    `gorm:"type:varchar(20)" json:"db_type"` // sqlite, mysql, postgres
-	Remark    string    `gorm:"type:varchar(255)" json:"remark"`
-	CreatedBy string    `gorm:"type:varchar(100)" json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
 }
 
 // UserSession 用户会话（数据库持久化）
@@ -307,10 +223,6 @@ func (User) TableName() string {
 	return "users"
 }
 
-func (AdminUser) TableName() string {
-	return "admin_users"
-}
-
 func (Product) TableName() string {
 	return "products"
 }
@@ -331,10 +243,6 @@ func (EmailConfigDB) TableName() string {
 	return "email_configs"
 }
 
-func (PaymentConfigDB) TableName() string {
-	return "payment_configs"
-}
-
 func (SystemConfigDB) TableName() string {
 	return "system_configs"
 }
@@ -343,24 +251,8 @@ func (LoginAttempt) TableName() string {
 	return "login_attempts"
 }
 
-func (Announcement) TableName() string {
-	return "announcements"
-}
-
 func (ProductCategory) TableName() string {
 	return "product_categories"
-}
-
-func (Coupon) TableName() string {
-	return "coupons"
-}
-
-func (CouponUsage) TableName() string {
-	return "coupon_usages"
-}
-
-func (DatabaseBackup) TableName() string {
-	return "database_backups"
 }
 
 func (UserSession) TableName() string {

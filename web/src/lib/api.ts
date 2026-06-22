@@ -149,3 +149,5 @@ export function apiDelete<T = Record<string, unknown>>(
 ) {
   return apiRequest<T>(url, { method: 'DELETE', body })
 }
+
+export type ApiResponse<T> = T & { success: boolean; error?: string }

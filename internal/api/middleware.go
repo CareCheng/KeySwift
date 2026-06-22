@@ -114,7 +114,6 @@ func CSRFMiddleware() gin.HandlerFunc {
 			"/api/captcha",
 			"/api/user/email/send_code",
 			"/api/user/forgot",
-			"/api/paypal/",
 			"/health",
 			"/api/health",
 		}
@@ -218,51 +217,34 @@ type RateLimitConfig struct {
 
 // 不同API的限流配置
 var rateLimitConfigs = map[string]RateLimitConfig{
-	"login":          {Window: time.Minute, MaxRequests: 10},
-	"register":       {Window: time.Minute, MaxRequests: 5},
-	"email_code":     {Window: time.Minute, MaxRequests: 3},
-	"forgot":         {Window: time.Minute, MaxRequests: 5},
-	"api_default":    {Window: time.Minute, MaxRequests: 120},
-	"admin_api":      {Window: time.Minute, MaxRequests: 60},
-	"payment":        {Window: time.Minute, MaxRequests: 20},
-	"balance_recharge": {Window: time.Minute, MaxRequests: 5},   // 充值订单创建限制
-	"balance_pay":      {Window: time.Minute, MaxRequests: 10},  // 余额支付限制
-	"pay_password":     {Window: time.Minute, MaxRequests: 5},   // 支付密码操作限制
+	"login":         {Window: time.Minute, MaxRequests: 10},
+	"register":      {Window: time.Minute, MaxRequests: 5},
+	"email_code":    {Window: time.Minute, MaxRequests: 3},
+	"forgot":        {Window: time.Minute, MaxRequests: 5},
+	"public_browse": {Window: time.Minute, MaxRequests: 600},
+	"user_status":   {Window: time.Minute, MaxRequests: 240},
+	"api_default":   {Window: time.Minute, MaxRequests: 180},
+	"admin_api":     {Window: time.Minute, MaxRequests: 180},
+	"payment":       {Window: time.Minute, MaxRequests: 60},
+	"balance_pay":   {Window: time.Minute, MaxRequests: 10}, // 余额支付限制
+	"pay_password":  {Window: time.Minute, MaxRequests: 10}, // 支付密码操作限制
 }
 
 // RateLimitMiddleware API限流中间件
 func RateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clientIP := c.ClientIP()
-		path := c.Request.URL.Path
-
-		// 确定限流类型
-		limitType := "api_default"
-		if strings.Contains(path, "/login") {
-			limitType = "login"
-		} else if strings.Contains(path, "/register") {
-			limitType = "register"
-		} else if strings.Contains(path, "/email/send_code") {
-			limitType = "email_code"
-		} else if strings.Contains(path, "/forgot") {
-			limitType = "forgot"
-		} else if strings.HasPrefix(path, "/api/admin") {
-			limitType = "admin_api"
-		} else if strings.Contains(path, "/balance/recharge") {
-			limitType = "balance_recharge"
-		} else if strings.Contains(path, "/pay/balance") {
-			limitType = "balance_pay"
-		} else if strings.Contains(path, "/pay-password") {
-			limitType = "pay_password"
-		} else if strings.Contains(path, "/payment") || strings.Contains(path, "/paypal") {
-			limitType = "payment"
+		if shouldSkipRateLimit(c) {
+			c.Next()
+			return
 		}
 
+		// 确定限流类型
+		limitType := getRateLimitType(c)
 		config := rateLimitConfigs[limitType]
-		key := clientIP + ":" + limitType
+		key := getRateLimitKey(c, limitType)
 
 		allowed, remaining := checkRateLimit(key, config)
-		
+
 		// 设置限流响应头
 		c.Header("X-RateLimit-Limit", fmt.Sprintf("%d", config.MaxRequests))
 		c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
@@ -276,6 +258,118 @@ func RateLimitMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func shouldSkipRateLimit(c *gin.Context) bool {
+	path := c.Request.URL.Path
+	method := c.Request.Method
+
+	if method == http.MethodOptions || method == http.MethodHead {
+		return true
+	}
+
+	if path == "/" || path == "/health" || path == "/api/health" {
+		return true
+	}
+
+	skipPrefixes := []string{
+		"/static/",
+		"/_next/",
+		"/product-files/",
+		"/uploads/",
+	}
+	for _, prefix := range skipPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+
+	if !strings.HasPrefix(path, "/api/") && method == http.MethodGet {
+		return true
+	}
+
+	return false
+}
+
+func getRateLimitType(c *gin.Context) string {
+	path := c.Request.URL.Path
+	method := c.Request.Method
+
+	if method == http.MethodGet && isPublicBrowseAPI(path) {
+		return "public_browse"
+	}
+	if method == http.MethodGet && isUserStatusAPI(path) {
+		return "user_status"
+	}
+
+	limitType := "api_default"
+	if strings.Contains(path, "/login") {
+		limitType = "login"
+	} else if strings.Contains(path, "/register") {
+		limitType = "register"
+	} else if strings.Contains(path, "/email/send_code") {
+		limitType = "email_code"
+	} else if strings.Contains(path, "/forgot") {
+		limitType = "forgot"
+	} else if strings.HasPrefix(path, "/api/admin") {
+		limitType = "admin_api"
+	} else if strings.Contains(path, "/pay/balance") {
+		limitType = "balance_pay"
+	} else if strings.Contains(path, "/pay-password") {
+		limitType = "pay_password"
+	} else if strings.Contains(path, "/payment") || strings.Contains(path, "/paypal") {
+		limitType = "payment"
+	}
+
+	return limitType
+}
+
+func isPublicBrowseAPI(path string) bool {
+	publicBrowsePaths := []string{
+		"/api/products",
+		"/api/product/",
+		"/api/categories",
+		"/api/payment/methods",
+		"/api/captcha",
+	}
+	for _, publicPath := range publicBrowsePaths {
+		if path == publicPath || strings.HasPrefix(path, publicPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func isUserStatusAPI(path string) bool {
+	statusPaths := []string{
+		"/api/user/info",
+		"/api/user/orders",
+		"/api/user/kamis",
+		"/api/user/balance",
+		"/api/user/balance/logs",
+		"/api/user/pay-password/status",
+		"/api/user/2fa/status",
+		"/api/user/email/code_length",
+		"/api/user/2fa/info",
+		"/api/order/detail/",
+	}
+	for _, statusPath := range statusPaths {
+		if path == statusPath || strings.HasPrefix(path, statusPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func getRateLimitKey(c *gin.Context, limitType string) string {
+	if sessionID, err := c.Cookie("user_session"); err == nil && sessionID != "" {
+		return "user:" + sessionID + ":" + limitType
+	}
+	if sessionID, err := c.Cookie("admin_session"); err == nil && sessionID != "" {
+		return "admin:" + sessionID + ":" + limitType
+	}
+
+	return "ip:" + c.ClientIP() + ":" + limitType
 }
 
 // checkRateLimit 检查限流
@@ -561,7 +655,6 @@ func StartSecurityCleanupTask() {
 		}
 	}()
 }
-
 
 // ==================== CSRF API ====================
 

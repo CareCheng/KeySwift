@@ -17,11 +17,11 @@ import (
 // LogEntry 日志条目结构
 type LogEntry struct {
 	ID        uint      `json:"id"`
-	UserType  string    `json:"user_type"`  // user, admin, security
+	UserType  string    `json:"user_type"` // user, admin, security
 	UserID    uint      `json:"user_id"`
 	Username  string    `json:"username"`
 	Action    string    `json:"action"`
-	Category  string    `json:"category"`   // 操作分类：auth, product, order, user, system, payment, support
+	Category  string    `json:"category"` // 操作分类：auth, product, order, user, system, payment
 	Target    string    `json:"target"`
 	TargetID  string    `json:"target_id"`
 	Detail    string    `json:"detail"`
@@ -53,7 +53,7 @@ func NewLogService() *LogService {
 		execPath = "."
 	}
 	rootDir := filepath.Dir(execPath)
-	
+
 	// 如果是开发环境，使用当前目录
 	if _, err := os.Stat(filepath.Join(rootDir, "go.mod")); err != nil {
 		// 生产环境
@@ -62,15 +62,15 @@ func NewLogService() *LogService {
 		// 开发环境，使用当前工作目录
 		rootDir, _ = os.Getwd()
 	}
-	
+
 	logDir := filepath.Join(rootDir, "server_log")
 	configPath := filepath.Join(rootDir, "server_log", "log_config.json")
-	
+
 	// 确保日志目录存在
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		fmt.Printf("创建日志目录失败: %v\n", err)
 	}
-	
+
 	svc := &LogService{
 		logDir:     logDir,
 		configPath: configPath,
@@ -79,10 +79,10 @@ func NewLogService() *LogService {
 			EnableAdminLog: false, // 默认关闭管理端日志
 		},
 	}
-	
+
 	// 加载配置
 	svc.loadConfig()
-	
+
 	return svc
 }
 
@@ -93,13 +93,13 @@ func (s *LogService) loadConfig() {
 		// 配置文件不存在，使用默认配置
 		return
 	}
-	
+
 	var config LogConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		fmt.Printf("解析日志配置失败: %v\n", err)
 		return
 	}
-	
+
 	s.config = config
 }
 
@@ -109,11 +109,11 @@ func (s *LogService) saveConfig() error {
 	if err != nil {
 		return fmt.Errorf("序列化配置失败: %v", err)
 	}
-	
+
 	if err := os.WriteFile(s.configPath, data, 0644); err != nil {
 		return fmt.Errorf("保存配置失败: %v", err)
 	}
-	
+
 	return nil
 }
 
@@ -126,7 +126,7 @@ func (s *LogService) GetLogConfig() LogConfig {
 func (s *LogService) UpdateLogConfig(config LogConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	s.config = config
 	return s.saveConfig()
 }
@@ -152,7 +152,7 @@ func (s *LogService) LogOperation(userType string, userID uint, username, action
 	if userType == "admin" && !s.config.EnableAdminLog {
 		return
 	}
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -191,7 +191,7 @@ func (s *LogService) LogOperation(userType string, userID uint, username, action
 // writeLogEntry 将日志条目写入CSV文件
 func (s *LogService) writeLogEntry(entry *LogEntry) error {
 	filePath := s.getTodayLogFilePath()
-	
+
 	// 检查文件是否存在，不存在则创建并写入表头
 	isNewFile := false
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
@@ -256,8 +256,7 @@ func (s *LogService) LogUserAction(userID uint, username, action, category, targ
 	s.LogOperation("user", userID, username, action, category, target, targetID, detail, ip, userAgent)
 }
 
-// LogUserActionSimple 记录用户操作（简化版，自动推断分类）
-// 兼容旧接口，根据 target 自动推断 category
+// LogUserActionSimple 记录用户操作（简化版，自动推断分类）。
 func (s *LogService) LogUserActionSimple(userID uint, username, action, target, targetID string, detail interface{}, ip, userAgent string) {
 	category := inferCategory(target)
 	s.LogOperation("user", userID, username, action, category, target, targetID, detail, ip, userAgent)
@@ -268,8 +267,7 @@ func (s *LogService) LogAdminAction(username, action, category, target, targetID
 	s.LogOperation("admin", 0, username, action, category, target, targetID, detail, ip, userAgent)
 }
 
-// LogAdminActionSimple 记录管理员操作（简化版，自动推断分类）
-// 兼容旧接口，根据 target 自动推断 category
+// LogAdminActionSimple 记录管理员操作（简化版，自动推断分类）。
 func (s *LogService) LogAdminActionSimple(username, action, target, targetID string, detail interface{}, ip, userAgent string) {
 	category := inferCategory(target)
 	s.LogOperation("admin", 0, username, action, category, target, targetID, detail, ip, userAgent)
@@ -278,24 +276,16 @@ func (s *LogService) LogAdminActionSimple(username, action, target, targetID str
 // inferCategory 根据 target 推断分类
 func inferCategory(target string) string {
 	switch target {
-	case "user", "account", "login_device", "login_location":
+	case "user", "account":
 		return "user"
-	case "product", "product_review", "category":
+	case "product", "category":
 		return "product"
 	case "order":
 		return "order"
-	case "payment", "balance", "usdt":
+	case "payment", "balance":
 		return "payment"
-	case "announcement", "backup", "whitelist", "blacklist", "security", "encryption_key":
+	case "whitelist", "blacklist", "security", "encryption_key", "role", "admin":
 		return "system"
-	case "ticket", "ticket_template", "support", "auto_reply_config", "auto_reply_rule":
-		return "support"
-	case "role", "admin":
-		return "system"
-	case "points_rule", "user_points", "scheduled_task", "undo_operation", "undo_config":
-		return "system"
-	case "account_deletion":
-		return "user"
 	default:
 		return "system"
 	}
@@ -438,11 +428,9 @@ func (s *LogService) readLogFile(filePath string) ([]LogEntry, error) {
 		for j, field := range record {
 			dec, err := utils.AESDecrypt(field)
 			if err != nil {
-				// 解密失败，可能是未加密的旧数据
-				decrypted[j] = field
-			} else {
-				decrypted[j] = dec
+				return nil, fmt.Errorf("日志字段解密失败: %v", err)
 			}
+			decrypted[j] = dec
 		}
 
 		// 解析用户ID
@@ -498,7 +486,7 @@ func (s *LogService) GetAvailableLogDates() ([]string, error) {
 	return dates, nil
 }
 
-// GetUserOperationLogs 获取用户操作日志（兼容旧接口）
+// GetUserOperationLogs 获取用户操作日志。
 // 注意：此方法需要遍历所有日志文件，性能较低
 func (s *LogService) GetUserOperationLogs(userID uint, page, pageSize int) ([]LogEntry, int64, error) {
 	// 获取所有可用日期
@@ -511,7 +499,7 @@ func (s *LogService) GetUserOperationLogs(userID uint, page, pageSize int) ([]Lo
 	for _, date := range dates {
 		logDate, _ := time.Parse("2006-01-02", date)
 		filePath := s.getLogFilePath(logDate)
-		
+
 		entries, err := s.readLogFile(filePath)
 		if err != nil {
 			continue

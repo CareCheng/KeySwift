@@ -1,25 +1,5 @@
 import { create } from 'zustand'
-
-/**
- * 用户信息接口
- */
-interface UserInfo {
-  id: number
-  username: string
-  email: string
-  email_verified: boolean
-  phone: string
-  created_at: string
-}
-
-/**
- * 2FA 状态接口
- */
-interface TwoFAStatus {
-  enabled: boolean
-  has_totp: boolean
-  prefer_email_auth: boolean
-}
+import type { TwoFAStatus, UserInfo } from '@/types/user'
 
 /**
  * 应用状态存储

@@ -178,13 +178,12 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   dashboard: ['dashboard:view'],
   products: ['product:view'],
   categories: ['category:view'],
-  coupons: ['coupon:view'],
   orders: ['order:view'],
-  users: ['user:view', 'admin:view', 'role:view'],
-  support: ['support:view'],
-  content: ['announcement:view', 'faq:view', 'knowledge:view', 'review:view'],
-  system: ['log:view', 'backup:view', 'stats:view', 'monitor:view'],
+  users: ['user:view'],
+  balance: ['balance:view'],
+  access: ['role:view', 'admin:view'],
   config: ['settings:view', 'settings:payment', 'settings:email', 'settings:database'],
+  plugins: ['plugin:view'],
 }
 
 /**

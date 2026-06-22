@@ -33,13 +33,22 @@ func AdminGetSettings(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success": true,
 		"settings": gin.H{
-			"system_title":            sysCfg.SystemTitle,
-			"admin_suffix":            sysCfg.AdminSuffix,
-			"enable_login":            sysCfg.EnableLogin,
-			"admin_username":          sysCfg.AdminUsername,
-			"enable_2fa":              sysCfg.Enable2FA,
-			"totp_secret":             sysCfg.TOTPSecret,
-			"server_port":             serverPort,
+			"system_title":                    sysCfg.SystemTitle,
+			"admin_suffix":                    sysCfg.AdminSuffix,
+			"enable_login":                    sysCfg.EnableLogin,
+			"enable_captcha":                  sysCfg.EnableCaptcha,
+			"admin_username":                  sysCfg.AdminUsername,
+			"enable_2fa":                      sysCfg.Enable2FA,
+			"totp_secret":                     sysCfg.TOTPSecret,
+			"enable_session_timeout":          sysCfg.EnableSessionTimeout,
+			"session_timeout":                 sysCfg.SessionTimeout,
+			"user_allow_register":             sysCfg.UserAllowRegister,
+			"user_enable_captcha":             sysCfg.UserEnableCaptcha,
+			"user_enable_2fa":                 sysCfg.UserEnable2FA,
+			"user_require_email_verification": sysCfg.UserRequireEmailVerification,
+			"user_enable_session_timeout":     sysCfg.UserEnableSessionTimeout,
+			"user_session_timeout":            sysCfg.UserSessionTimeout,
+			"server_port":                     serverPort,
 		},
 	})
 }
@@ -66,15 +75,24 @@ func AdminSaveSettings(c *gin.Context) {
 	sysCfg, err := ConfigSvc.GetSystemConfig()
 	if err != nil || sysCfg == nil {
 		sysCfg = &service.SystemConfig{
-			SystemTitle:     config.GlobalConfig.ServerConfig.SystemTitle,
-			AdminSuffix:     config.GlobalConfig.ServerConfig.AdminSuffix,
-			EnableLogin:     config.GlobalConfig.ServerConfig.EnableLogin,
-			AdminUsername:   config.GlobalConfig.ServerConfig.AdminUsername,
-			AdminPassword:   config.GlobalConfig.ServerConfig.AdminPassword,
-			Enable2FA:       config.GlobalConfig.ServerConfig.Enable2FA,
-			TOTPSecret:      config.GlobalConfig.ServerConfig.TOTPSecret,
-			EnableWhitelist: false,
-			IPWhitelist:     []string{},
+			SystemTitle:                  config.GlobalConfig.ServerConfig.SystemTitle,
+			AdminSuffix:                  config.GlobalConfig.ServerConfig.AdminSuffix,
+			EnableLogin:                  config.GlobalConfig.ServerConfig.EnableLogin,
+			EnableCaptcha:                config.GlobalConfig.ServerConfig.EnableCaptcha,
+			AdminUsername:                config.GlobalConfig.ServerConfig.AdminUsername,
+			AdminPassword:                config.GlobalConfig.ServerConfig.AdminPassword,
+			Enable2FA:                    config.GlobalConfig.ServerConfig.Enable2FA,
+			TOTPSecret:                   config.GlobalConfig.ServerConfig.TOTPSecret,
+			EnableSessionTimeout:         config.GlobalConfig.ServerConfig.EnableSessionTimeout,
+			SessionTimeout:               normalizeSettingsTimeout(config.GlobalConfig.ServerConfig.SessionTimeout, 60),
+			UserAllowRegister:            config.GlobalConfig.ServerConfig.UserAllowRegister,
+			UserEnableCaptcha:            config.GlobalConfig.ServerConfig.UserEnableCaptcha,
+			UserEnable2FA:                config.GlobalConfig.ServerConfig.UserEnable2FA,
+			UserRequireEmailVerification: config.GlobalConfig.ServerConfig.UserRequireEmailVerification,
+			UserEnableSessionTimeout:     config.GlobalConfig.ServerConfig.UserEnableSessionTimeout,
+			UserSessionTimeout:           normalizeSettingsTimeout(config.GlobalConfig.ServerConfig.UserSessionTimeout, 120),
+			EnableWhitelist:              false,
+			IPWhitelist:                  []string{},
 		}
 	}
 
@@ -122,11 +140,20 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 	}
 
 	var req struct {
-		EnableLogin   bool   `json:"enable_login"`
-		AdminUsername string `json:"admin_username"`
-		AdminPassword string `json:"admin_password"`
-		Enable2FA     bool   `json:"enable_2fa"`
-		TOTPSecret    string `json:"totp_secret"`
+		EnableLogin                  bool   `json:"enable_login"`
+		EnableCaptcha                bool   `json:"enable_captcha"`
+		AdminUsername                string `json:"admin_username"`
+		AdminPassword                string `json:"admin_password"`
+		Enable2FA                    bool   `json:"enable_2fa"`
+		TOTPSecret                   string `json:"totp_secret"`
+		EnableSessionTimeout         bool   `json:"enable_session_timeout"`
+		SessionTimeout               int    `json:"session_timeout"`
+		UserAllowRegister            bool   `json:"user_allow_register"`
+		UserEnableCaptcha            bool   `json:"user_enable_captcha"`
+		UserEnable2FA                bool   `json:"user_enable_2fa"`
+		UserRequireEmailVerification bool   `json:"user_require_email_verification"`
+		UserEnableSessionTimeout     bool   `json:"user_enable_session_timeout"`
+		UserSessionTimeout           int    `json:"user_session_timeout"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -138,14 +165,22 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 	sysCfg, err := ConfigSvc.GetSystemConfig()
 	if err != nil || sysCfg == nil {
 		sysCfg = &service.SystemConfig{
-			SystemTitle:     config.GlobalConfig.ServerConfig.SystemTitle,
-			AdminSuffix:     config.GlobalConfig.ServerConfig.AdminSuffix,
-			EnableLogin:     true,
-			AdminUsername:   "admin",
-			AdminPassword:   "admin123",
-			Enable2FA:       false,
-			EnableWhitelist: false,
-			IPWhitelist:     []string{},
+			SystemTitle:              config.GlobalConfig.ServerConfig.SystemTitle,
+			AdminSuffix:              config.GlobalConfig.ServerConfig.AdminSuffix,
+			EnableLogin:              true,
+			EnableCaptcha:            true,
+			AdminUsername:            "admin",
+			AdminPassword:            "admin123",
+			Enable2FA:                false,
+			EnableSessionTimeout:     true,
+			SessionTimeout:           60,
+			UserAllowRegister:        true,
+			UserEnableCaptcha:        true,
+			UserEnable2FA:            true,
+			UserEnableSessionTimeout: true,
+			UserSessionTimeout:       120,
+			EnableWhitelist:          false,
+			IPWhitelist:              []string{},
 		}
 	}
 
@@ -161,14 +196,23 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 
 	// 更新安全相关字段
 	sysCfg.EnableLogin = req.EnableLogin
+	sysCfg.EnableCaptcha = req.EnableLogin && req.EnableCaptcha
 	if req.AdminUsername != "" {
 		sysCfg.AdminUsername = req.AdminUsername
 	}
 	if req.AdminPassword != "" {
 		sysCfg.AdminPassword = req.AdminPassword
 	}
-	sysCfg.Enable2FA = req.Enable2FA
+	sysCfg.Enable2FA = req.EnableLogin && req.Enable2FA
 	sysCfg.TOTPSecret = req.TOTPSecret
+	sysCfg.EnableSessionTimeout = req.EnableLogin && req.EnableSessionTimeout
+	sysCfg.SessionTimeout = normalizeSettingsTimeout(req.SessionTimeout, 60)
+	sysCfg.UserAllowRegister = req.UserAllowRegister
+	sysCfg.UserEnableCaptcha = req.UserEnableCaptcha
+	sysCfg.UserEnable2FA = req.UserEnable2FA
+	sysCfg.UserRequireEmailVerification = req.UserRequireEmailVerification && config.GlobalConfig.EmailConfig.Enabled
+	sysCfg.UserEnableSessionTimeout = req.UserEnableSessionTimeout
+	sysCfg.UserSessionTimeout = normalizeSettingsTimeout(req.UserSessionTimeout, 120)
 
 	if err := ConfigSvc.SaveSystemConfig(sysCfg); err != nil {
 		c.JSON(500, gin.H{"success": false, "error": "保存配置失败: " + err.Error()})
@@ -177,14 +221,54 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 
 	// 同步更新全局配置
 	config.GlobalConfig.ServerConfig.EnableLogin = sysCfg.EnableLogin
+	config.GlobalConfig.ServerConfig.EnableCaptcha = sysCfg.EnableCaptcha
 	config.GlobalConfig.ServerConfig.AdminUsername = sysCfg.AdminUsername
 	if req.AdminPassword != "" {
 		config.GlobalConfig.ServerConfig.AdminPassword = sysCfg.AdminPassword
 	}
 	config.GlobalConfig.ServerConfig.Enable2FA = sysCfg.Enable2FA
 	config.GlobalConfig.ServerConfig.TOTPSecret = sysCfg.TOTPSecret
+	config.GlobalConfig.ServerConfig.EnableSessionTimeout = sysCfg.EnableSessionTimeout
+	config.GlobalConfig.ServerConfig.SessionTimeout = sysCfg.SessionTimeout
+	config.GlobalConfig.ServerConfig.UserAllowRegister = sysCfg.UserAllowRegister
+	config.GlobalConfig.ServerConfig.UserEnableCaptcha = sysCfg.UserEnableCaptcha
+	config.GlobalConfig.ServerConfig.UserEnable2FA = sysCfg.UserEnable2FA
+	config.GlobalConfig.ServerConfig.UserRequireEmailVerification = sysCfg.UserRequireEmailVerification
+	config.GlobalConfig.ServerConfig.UserEnableSessionTimeout = sysCfg.UserEnableSessionTimeout
+	config.GlobalConfig.ServerConfig.UserSessionTimeout = sysCfg.UserSessionTimeout
 
 	c.JSON(200, gin.H{"success": true, "message": "安全设置已保存"})
+}
+
+// PublicAuthConfig 返回前台和后台登录页需要的非敏感认证配置。
+func PublicAuthConfig(c *gin.Context) {
+	serverCfg := config.GlobalConfig.ServerConfig
+	emailEnabled := config.GlobalConfig.EmailConfig.Enabled
+	c.JSON(200, gin.H{
+		"success": true,
+		"config": gin.H{
+			"admin_enable_login":              serverCfg.EnableLogin,
+			"admin_enable_captcha":            serverCfg.EnableLogin && serverCfg.EnableCaptcha,
+			"user_allow_register":             serverCfg.UserAllowRegister,
+			"user_enable_captcha":             serverCfg.UserEnableCaptcha,
+			"user_enable_2fa":                 serverCfg.UserEnable2FA,
+			"user_require_email_verification": serverCfg.UserRequireEmailVerification && emailEnabled,
+			"email_enabled":                   emailEnabled,
+		},
+	})
+}
+
+func normalizeSettingsTimeout(value, fallback int) int {
+	if value <= 0 {
+		value = fallback
+	}
+	if value < 5 {
+		return 5
+	}
+	if value > 1440 {
+		return 1440
+	}
+	return value
 }
 
 // AdminGenerate2FASecret 生成2FA密钥

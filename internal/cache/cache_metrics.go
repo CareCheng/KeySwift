@@ -13,9 +13,6 @@ type CacheMetrics struct {
 	hits   atomic.Int64
 	misses atomic.Int64
 
-	// 故障转移统计
-	failovers atomic.Int64
-
 	// 启动时间
 	startTime time.Time
 
@@ -42,11 +39,6 @@ func (m *CacheMetrics) RecordHit() {
 // RecordMiss 记录缓存未命中
 func (m *CacheMetrics) RecordMiss() {
 	m.misses.Add(1)
-}
-
-// RecordFailover 记录故障转移
-func (m *CacheMetrics) RecordFailover() {
-	m.failovers.Add(1)
 }
 
 // RecordError 记录错误
@@ -76,11 +68,6 @@ func (m *CacheMetrics) GetHitRate() float64 {
 	return float64(hits) / float64(total) * 100
 }
 
-// GetFailovers 获取故障转移次数
-func (m *CacheMetrics) GetFailovers() int64 {
-	return m.failovers.Load()
-}
-
 // GetUptime 获取运行时间
 func (m *CacheMetrics) GetUptime() time.Duration {
 	return time.Since(m.startTime)
@@ -104,12 +91,9 @@ func (m *CacheMetrics) GetLastErrorTime() time.Time {
 
 // CacheStats 缓存统计信息（用于 API 返回）
 type CacheStats struct {
-	RedisEnabled   bool    `json:"redis_enabled"`
-	RedisHealthy   bool    `json:"redis_healthy"`
 	LocalCacheSize int     `json:"local_cache_size"`
 	Hits           int64   `json:"hits"`
 	Misses         int64   `json:"misses"`
-	Failovers      int64   `json:"failovers"`
 	HitRate        string  `json:"hit_rate"`
 	Uptime         string  `json:"uptime"`
 	LastError      string  `json:"last_error,omitempty"`
@@ -118,9 +102,8 @@ type CacheStats struct {
 // CacheDashboard 缓存仪表盘数据（详细统计）
 type CacheDashboard struct {
 	// 基本信息
-	Mode           string `json:"mode"`             // 缓存模式: local/redis-standalone/redis-sentinel/redis-cluster
-	Status         string `json:"status"`           // 状态: connected/disconnected/degraded
-	Version        string `json:"version"`          // Redis版本（如果是Redis模式）
+	Mode           string `json:"mode"`             // 缓存模式：local
+	Status         string `json:"status"`           // 状态：connected
 	Uptime         string `json:"uptime"`           // 运行时间
 	UptimeSeconds  int64  `json:"uptime_seconds"`   // 运行时间（秒）
 	
@@ -135,34 +118,10 @@ type CacheDashboard struct {
 	// 内存信息
 	MemoryUsed      string  `json:"memory_used"`       // 已用内存
 	MemoryUsedBytes int64   `json:"memory_used_bytes"` // 已用内存（字节）
-	MemoryPeak      string  `json:"memory_peak"`       // 峰值内存
-	MemoryPeakBytes int64   `json:"memory_peak_bytes"` // 峰值内存（字节）
-	MemoryLimit     string  `json:"memory_limit"`      // 内存限制
-	MemoryPolicy    string  `json:"memory_policy"`     // 内存淘汰策略
-	
 	// 键空间信息
 	KeysCount      int64  `json:"keys_count"`       // 总键数
-	ExpiringKeys   int64  `json:"expiring_keys"`    // 设置过期时间的键数
-	ExpiredKeys    int64  `json:"expired_keys"`     // 已过期删除的键数
-	EvictedKeys    int64  `json:"evicted_keys"`     // 被淘汰的键数
-	
-	// 连接信息
-	ConnectedClients  int `json:"connected_clients"`   // 当前连接的客户端数
-	MaxClients        int `json:"max_clients"`         // 最大客户端数
-	BlockedClients    int `json:"blocked_clients"`     // 阻塞的客户端数
-	
-	// 复制信息（仅主从模式）
-	Role              string `json:"role"`               // 角色: master/slave
-	ConnectedSlaves   int    `json:"connected_slaves"`   // 连接的从节点数
-	
-	// 持久化信息
-	RDBEnabled       bool   `json:"rdb_enabled"`         // RDB是否启用
-	AOFEnabled       bool   `json:"aof_enabled"`         // AOF是否启用
-	LastSaveTime     string `json:"last_save_time"`      // 最后保存时间
-	LastSaveStatus   string `json:"last_save_status"`    // 最后保存状态
-	
-	// 故障转移信息
-	Failovers        int64  `json:"failovers"`           // 故障转移次数
+
+	// 错误信息
 	LastError        string `json:"last_error"`          // 最后一次错误
 	LastErrorTime    string `json:"last_error_time"`     // 最后错误时间
 	
@@ -175,12 +134,9 @@ type CacheDashboard struct {
 func (cm *CacheManager) GetStats() *CacheStats {
 	hitRate := cm.metrics.GetHitRate()
 	return &CacheStats{
-		RedisEnabled:   cm.redisEnabled,
-		RedisHealthy:   cm.redisHealthy.Load(),
 		LocalCacheSize: cm.local.Size(),
 		Hits:           cm.metrics.GetHits(),
 		Misses:         cm.metrics.GetMisses(),
-		Failovers:      cm.metrics.GetFailovers(),
 		HitRate:        formatPercent(hitRate),
 		Uptime:         formatDuration(cm.metrics.GetUptime()),
 		LastError:      cm.metrics.GetLastError(),
@@ -199,8 +155,8 @@ func (cm *CacheManager) GetDashboard() *CacheDashboard {
 		Hits:            cm.metrics.GetHits(),
 		Misses:          cm.metrics.GetMisses(),
 		TotalRequests:   cm.metrics.GetHits() + cm.metrics.GetMisses(),
-		Failovers:       cm.metrics.GetFailovers(),
 		LastError:       cm.metrics.GetLastError(),
+		KeysCount:       int64(cm.local.Size()),
 		LocalCacheSize:  cm.local.Size(),
 		LocalCacheMemory: formatBytes(int64(cm.local.Size() * 256)), // 估算每个条目256字节
 	}
@@ -216,159 +172,7 @@ func (cm *CacheManager) GetDashboard() *CacheDashboard {
 		dashboard.LastErrorTime = lastErrTime.Format("2006-01-02 15:04:05")
 	}
 	
-	// Redis 模式
-	if cm.redisEnabled {
-		if cm.config != nil {
-			switch cm.config.Mode {
-			case "sentinel":
-				dashboard.Mode = "redis-sentinel"
-			case "cluster":
-				dashboard.Mode = "redis-cluster"
-			default:
-				dashboard.Mode = "redis-standalone"
-			}
-		}
-		
-		if cm.redisHealthy.Load() {
-			dashboard.Status = "connected"
-			
-			// 获取 Redis 详细信息
-			if cm.redis != nil {
-				info, err := cm.redis.Info()
-				if err == nil {
-					parseRedisInfo(info, dashboard)
-				}
-				
-				// 获取键数量
-				if dbSize, err := cm.redis.DBSize(); err == nil {
-					dashboard.KeysCount = dbSize
-				}
-			}
-		} else {
-			dashboard.Status = "degraded"
-		}
-	}
-	
 	return dashboard
-}
-
-// parseRedisInfo 解析 Redis INFO 命令的输出
-func parseRedisInfo(info string, dashboard *CacheDashboard) {
-	lines := splitLines(info)
-	for _, line := range lines {
-		if len(line) == 0 || line[0] == '#' {
-			continue
-		}
-		parts := splitKV(line)
-		if len(parts) != 2 {
-			continue
-		}
-		key, value := parts[0], parts[1]
-		
-		switch key {
-		case "redis_version":
-			dashboard.Version = value
-		case "used_memory":
-			if n := parseInt64(value); n > 0 {
-				dashboard.MemoryUsedBytes = n
-				dashboard.MemoryUsed = formatBytes(n)
-			}
-		case "used_memory_peak":
-			if n := parseInt64(value); n > 0 {
-				dashboard.MemoryPeakBytes = n
-				dashboard.MemoryPeak = formatBytes(n)
-			}
-		case "maxmemory":
-			if n := parseInt64(value); n > 0 {
-				dashboard.MemoryLimit = formatBytes(n)
-			}
-		case "maxmemory_policy":
-			dashboard.MemoryPolicy = value
-		case "connected_clients":
-			dashboard.ConnectedClients = int(parseInt64(value))
-		case "maxclients":
-			dashboard.MaxClients = int(parseInt64(value))
-		case "blocked_clients":
-			dashboard.BlockedClients = int(parseInt64(value))
-		case "role":
-			dashboard.Role = value
-		case "connected_slaves":
-			dashboard.ConnectedSlaves = int(parseInt64(value))
-		case "rdb_last_save_time":
-			if n := parseInt64(value); n > 0 {
-				dashboard.RDBEnabled = true
-				dashboard.LastSaveTime = formatUnixTime(n)
-			}
-		case "rdb_last_bgsave_status":
-			dashboard.LastSaveStatus = value
-		case "aof_enabled":
-			dashboard.AOFEnabled = value == "1"
-		case "expired_keys":
-			dashboard.ExpiredKeys = parseInt64(value)
-		case "evicted_keys":
-			dashboard.EvictedKeys = parseInt64(value)
-		case "keyspace_hits":
-			// Redis 自身的命中统计
-		case "keyspace_misses":
-			// Redis 自身的未命中统计
-		}
-	}
-}
-
-// splitLines 按行分割字符串
-func splitLines(s string) []string {
-	var lines []string
-	var current []byte
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			if len(current) > 0 && current[len(current)-1] == '\r' {
-				current = current[:len(current)-1]
-			}
-			lines = append(lines, string(current))
-			current = nil
-		} else {
-			current = append(current, s[i])
-		}
-	}
-	if len(current) > 0 {
-		lines = append(lines, string(current))
-	}
-	return lines
-}
-
-// splitKV 按 : 分割键值对
-func splitKV(s string) []string {
-	for i := 0; i < len(s); i++ {
-		if s[i] == ':' {
-			return []string{s[:i], s[i+1:]}
-		}
-	}
-	return nil
-}
-
-// parseInt64 解析整数
-func parseInt64(s string) int64 {
-	var n int64
-	negative := false
-	for i := 0; i < len(s); i++ {
-		if s[i] == '-' && i == 0 {
-			negative = true
-			continue
-		}
-		if s[i] >= '0' && s[i] <= '9' {
-			n = n*10 + int64(s[i]-'0')
-		}
-	}
-	if negative {
-		return -n
-	}
-	return n
-}
-
-// formatUnixTime 格式化 Unix 时间戳
-func formatUnixTime(ts int64) string {
-	t := time.Unix(ts, 0)
-	return t.Format("2006-01-02 15:04:05")
 }
 
 // formatBytes 格式化字节数

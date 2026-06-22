@@ -7,6 +7,7 @@ import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import Toggle from '@/components/common/Toggle'
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api'
 import { formatDateTime } from '@/lib/utils'
+import { PermissionGuard } from '@/contexts/PermissionContext'
 
 /**
  * 角色接口
@@ -44,7 +45,10 @@ interface Admin {
 interface Permission {
   code: string
   name: string
+  description?: string
   group: string
+  plugin_id?: string
+  risk_level?: string
 }
 
 /**
@@ -85,6 +89,7 @@ export function RolesPage() {
     email: '',
     nickname: '',
     role_id: 0,
+    status: 1,
   })
 
   // 删除确认弹窗状态
@@ -118,7 +123,11 @@ export function RolesPage() {
   }
 
   const loadPermissions = async () => {
-    const res = await apiGet<{ permissions: Permission[]; templates: PermissionTemplate[] }>('/api/admin/permissions')
+    const res = await apiGet<{
+      permissions: Permission[]
+      plugin_permissions?: Permission[]
+      templates: PermissionTemplate[]
+    }>('/api/admin/permissions')
     if (res.success && res.permissions) {
       setPermissions(res.permissions)
     }
@@ -232,10 +241,11 @@ export function RolesPage() {
         email: admin.email,
         nickname: admin.nickname,
         role_id: admin.role_id,
+        status: admin.status,
       })
     } else {
       setEditingAdmin(null)
-      setAdminForm({ username: '', password: '', email: '', nickname: '', role_id: roles[0]?.id || 0 })
+      setAdminForm({ username: '', password: '', email: '', nickname: '', role_id: roles[0]?.id || 0, status: 1 })
     }
     setShowAdminModal(true)
   }
@@ -282,6 +292,9 @@ export function RolesPage() {
     return acc
   }, {} as Record<string, Permission[]>)
 
+  const hostPermissionGroups = Object.entries(groupedPermissions).filter(([group]) => !group.startsWith('插件权限'))
+  const pluginPermissionGroups = Object.entries(groupedPermissions).filter(([group]) => group.startsWith('插件权限'))
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -292,6 +305,15 @@ export function RolesPage() {
 
   return (
     <div className="space-y-6">
+      <Card>
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold text-dark-100">权限与管理员</h2>
+          <p className="text-sm text-dark-400">
+            管理后台角色、管理员账号和当前插件声明的权限点；插件授权在此分配，插件启停仍在插件管理中处理。
+          </p>
+        </div>
+      </Card>
+
       {/* 标签切换 */}
       <div className="flex gap-2 border-b border-dark-700/50 pb-4">
         <button
@@ -324,10 +346,12 @@ export function RolesPage() {
           title="角色列表"
           icon={<i className="fas fa-user-tag" />}
           action={
-            <Button size="sm" onClick={() => openRoleModal()}>
-              <i className="fas fa-plus mr-1" />
-              添加角色
-            </Button>
+            <PermissionGuard permission="role:create">
+              <Button size="sm" onClick={() => openRoleModal()}>
+                <i className="fas fa-plus mr-1" />
+                添加角色
+              </Button>
+            </PermissionGuard>
           }
         >
           <div className="space-y-3">
@@ -349,12 +373,16 @@ export function RolesPage() {
                   </div>
                   {!role.is_system && (
                     <div className="flex gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => openRoleModal(role)}>
-                        <i className="fas fa-edit" />
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => handleDeleteRole(role.id)}>
-                        <i className="fas fa-trash text-red-400" />
-                      </Button>
+                      <PermissionGuard permission="role:edit">
+                        <Button size="sm" variant="ghost" onClick={() => openRoleModal(role)}>
+                          <i className="fas fa-edit" />
+                        </Button>
+                      </PermissionGuard>
+                      <PermissionGuard permission="role:delete">
+                        <Button size="sm" variant="ghost" onClick={() => handleDeleteRole(role.id)}>
+                          <i className="fas fa-trash text-red-400" />
+                        </Button>
+                      </PermissionGuard>
                     </div>
                   )}
                 </div>
@@ -370,10 +398,12 @@ export function RolesPage() {
           title="管理员列表"
           icon={<i className="fas fa-user-shield" />}
           action={
-            <Button size="sm" onClick={() => openAdminModal()}>
-              <i className="fas fa-plus mr-1" />
-              添加管理员
-            </Button>
+            <PermissionGuard permission="admin:create">
+              <Button size="sm" onClick={() => openAdminModal()}>
+                <i className="fas fa-plus mr-1" />
+                添加管理员
+              </Button>
+            </PermissionGuard>
           }
         >
           <div className="overflow-x-auto">
@@ -410,12 +440,16 @@ export function RolesPage() {
                     </td>
                     <td className="py-3">
                       <div className="flex gap-2">
-                        <Button size="sm" variant="ghost" onClick={() => openAdminModal(admin)}>
-                          <i className="fas fa-edit" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleDeleteAdmin(admin.id)}>
-                          <i className="fas fa-trash text-red-400" />
-                        </Button>
+                        <PermissionGuard permission="admin:edit">
+                          <Button size="sm" variant="ghost" onClick={() => openAdminModal(admin)}>
+                            <i className="fas fa-edit" />
+                          </Button>
+                        </PermissionGuard>
+                        <PermissionGuard permission="admin:delete">
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteAdmin(admin.id)}>
+                            <i className="fas fa-trash text-red-400" />
+                          </Button>
+                        </PermissionGuard>
                       </div>
                     </td>
                   </tr>
@@ -474,9 +508,9 @@ export function RolesPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-dark-300 mb-2">权限配置（手动选择）</label>
+            <label className="block text-sm font-medium text-dark-300 mb-2">宿主权限</label>
             <div className="max-h-64 overflow-y-auto space-y-4 p-3 bg-dark-700/30 rounded-lg">
-              {Object.entries(groupedPermissions).map(([group, perms]) => (
+              {hostPermissionGroups.map(([group, perms]) => (
                 <div key={group}>
                   <div className="text-sm font-medium text-dark-400 mb-2">{group}</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -487,12 +521,41 @@ export function RolesPage() {
                           checked={roleForm.permissions.includes(perm.code)}
                           onChange={() => togglePermission(perm.code)}
                         />
-                        <span className="text-sm text-dark-300">{perm.name}</span>
+                        <span className="text-sm text-dark-300" title={perm.description}>{perm.name}</span>
                       </label>
                     ))}
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-dark-300 mb-2">插件权限</label>
+            <div className="max-h-64 overflow-y-auto space-y-4 p-3 bg-dark-700/30 rounded-lg">
+              {pluginPermissionGroups.length === 0 ? (
+                <div className="text-sm text-dark-500">当前没有插件声明权限</div>
+              ) : (
+                pluginPermissionGroups.map(([group, perms]) => (
+                  <div key={group}>
+                    <div className="text-sm font-medium text-dark-400 mb-2">{group}</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {perms.map((perm) => (
+                        <label key={perm.code} className="flex items-start gap-2 cursor-pointer rounded-lg bg-dark-800/50 p-2">
+                          <Toggle
+                            size="sm"
+                            checked={roleForm.permissions.includes(perm.code)}
+                            onChange={() => togglePermission(perm.code)}
+                          />
+                          <span>
+                            <span className="block text-sm text-dark-200">{perm.name}</span>
+                            <span className="block text-xs text-dark-500">{perm.code}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
           <Button className="w-full" onClick={handleSaveRole}>
@@ -548,6 +611,19 @@ export function RolesPage() {
               ))}
             </select>
           </div>
+          {editingAdmin && (
+            <div>
+              <label className="block text-sm font-medium text-dark-300 mb-2">状态</label>
+              <select
+                className="w-full px-4 py-3 bg-dark-700/50 border border-dark-600 rounded-xl text-dark-100 focus:outline-none focus:border-primary-500"
+                value={adminForm.status}
+                onChange={(e) => setAdminForm({ ...adminForm, status: parseInt(e.target.value) })}
+              >
+                <option value={1}>正常</option>
+                <option value={0}>禁用</option>
+              </select>
+            </div>
+          )}
           <Button className="w-full" onClick={handleSaveAdmin}>
             保存
           </Button>

@@ -18,9 +18,10 @@ type SessionService struct {
 
 // 会话过期时间
 const (
-	UserSessionDuration  = 2 * time.Hour      // 用户会话2小时
-	AdminSessionDuration = 1 * time.Hour      // 管理员会话1小时
-	RememberMeDuration   = 7 * 24 * time.Hour // 记住我7天
+	UserSessionDuration      = 2 * time.Hour      // 用户会话2小时
+	AdminSessionDuration     = 1 * time.Hour      // 管理员会话1小时
+	RememberMeDuration       = 7 * 24 * time.Hour // 记住我7天
+	LongLivedSessionDuration = 10 * 365 * 24 * time.Hour
 )
 
 func NewSessionService(repo *repository.Repository) *SessionService {
@@ -29,12 +30,19 @@ func NewSessionService(repo *repository.Repository) *SessionService {
 
 // CreateUserSession 创建用户会话
 func (s *SessionService) CreateUserSession(userID uint, username, ip, userAgent string, remember bool) (string, error) {
-	sessionID := uuid.New().String()
 	duration := UserSessionDuration
 	if remember {
 		duration = RememberMeDuration
 	}
+	return s.CreateUserSessionWithDuration(userID, username, ip, userAgent, duration)
+}
 
+// CreateUserSessionWithDuration 按指定有效期创建用户会话。
+func (s *SessionService) CreateUserSessionWithDuration(userID uint, username, ip, userAgent string, duration time.Duration) (string, error) {
+	sessionID := uuid.New().String()
+	if duration <= 0 {
+		duration = UserSessionDuration
+	}
 	session := &model.UserSession{
 		SessionID: sessionID,
 		UserID:    userID,
@@ -93,7 +101,7 @@ func (s *SessionService) RefreshUserSession(sessionID string) error {
 	}
 
 	session.ExpiresAt = time.Now().Add(UserSessionDuration)
-	
+
 	// 更新数据库
 	if err := s.repo.UpdateUserSession(session); err != nil {
 		return err
@@ -109,7 +117,7 @@ func (s *SessionService) RefreshUserSession(sessionID string) error {
 func (s *SessionService) DeleteUserSession(sessionID string) error {
 	// 删除缓存
 	s.deleteUserSessionFromCache(sessionID)
-	
+
 	// 删除数据库
 	return s.repo.DeleteUserSession(sessionID)
 }
@@ -121,18 +129,25 @@ func (s *SessionService) DeleteUserSessionsByUserID(userID uint) error {
 	for _, session := range sessions {
 		s.deleteUserSessionFromCache(session.SessionID)
 	}
-	
+
 	return s.repo.DeleteUserSessionsByUserID(userID)
 }
 
 // CreateAdminSession 创建管理员会话
 func (s *SessionService) CreateAdminSession(username, role, ip, userAgent string, remember bool) (string, error) {
-	sessionID := uuid.New().String()
 	duration := AdminSessionDuration
 	if remember {
 		duration = 24 * time.Hour // 管理员记住我24小时
 	}
+	return s.CreateAdminSessionWithDuration(username, role, ip, userAgent, duration)
+}
 
+// CreateAdminSessionWithDuration 按指定有效期创建管理员会话。
+func (s *SessionService) CreateAdminSessionWithDuration(username, role, ip, userAgent string, duration time.Duration) (string, error) {
+	sessionID := uuid.New().String()
+	if duration <= 0 {
+		duration = AdminSessionDuration
+	}
 	session := &model.AdminSession{
 		SessionID: sessionID,
 		Username:  username,
@@ -185,7 +200,7 @@ func (s *SessionService) SetAdminSessionVerified(sessionID string) error {
 		return err
 	}
 	session.Verified = true
-	
+
 	// 更新数据库
 	if err := s.repo.UpdateAdminSession(session); err != nil {
 		return err
@@ -204,7 +219,7 @@ func (s *SessionService) SetAdminSessionVerified(sessionID string) error {
 func (s *SessionService) DeleteAdminSession(sessionID string) error {
 	// 删除缓存
 	s.deleteAdminSessionFromCache(sessionID)
-	
+
 	// 删除数据库
 	return s.repo.DeleteAdminSession(sessionID)
 }

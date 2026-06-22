@@ -1,6 +1,5 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import type { HomepageConfig } from '@/types/homepage'
 
 interface FeaturesSectionProps {
@@ -25,25 +24,18 @@ export function FeaturesSection({ config }: FeaturesSectionProps) {
     <section className="py-16 px-4">
       <div className="max-w-6xl mx-auto">
         {config.features_title && (
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
+          <h2
             className="text-3xl font-bold text-center mb-12"
             style={{ color: 'var(--text-primary)' }}
           >
             {config.features_title}
-          </motion.h2>
+          </h2>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {config.features.map((feature, index) => (
-            <motion.div
+            <div
               key={index}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1 }}
               className="card p-6 text-center hover:shadow-lg transition-shadow"
             >
               <div className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center"
@@ -57,7 +49,7 @@ export function FeaturesSection({ config }: FeaturesSectionProps) {
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 {feature.description}
               </p>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>

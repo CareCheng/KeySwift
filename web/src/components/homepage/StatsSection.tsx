@@ -1,6 +1,5 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import type { HomepageConfig } from '@/types/homepage'
 
 interface StatsSectionProps {
@@ -26,12 +25,8 @@ export function StatsSection({ config }: StatsSectionProps) {
       <div className="max-w-6xl mx-auto">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
           {config.stats.map((stat, index) => (
-            <motion.div
+            <div
               key={index}
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1 }}
               className="text-center p-6"
             >
               <div className="mb-3">{renderIcon(stat.icon)}</div>
@@ -44,7 +39,7 @@ export function StatsSection({ config }: StatsSectionProps) {
               <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 {stat.label}
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>

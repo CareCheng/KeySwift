@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { motion } from 'framer-motion'
+import { UserRouteLink } from '@/components/layout/UserRouteLink'
 import type { HomepageConfig } from '@/types/homepage'
 
 interface HeroSectionProps {
@@ -52,10 +51,7 @@ export function HeroSection({ config }: HeroSectionProps) {
       )}
 
       <div className="relative max-w-4xl mx-auto text-center">
-        <motion.h1
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+        <h1
           className="text-4xl md:text-5xl font-bold mb-6"
           style={{ color: 'var(--text-primary)' }}
         >
@@ -81,34 +77,27 @@ export function HeroSection({ config }: HeroSectionProps) {
               {config.hero_title}
             </span>
           )}
-        </motion.h1>
+        </h1>
 
-        <motion.p
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
+        <p
           className="text-xl mb-8"
           style={{ color: 'var(--text-muted)' }}
         >
           {config.hero_subtitle}
-        </motion.p>
+        </p>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-        >
-          <Link
-            href={config.hero_button_link}
+        <div>
+          <UserRouteLink
+            view="products"
             className="btn btn-primary btn-lg inline-flex items-center gap-2"
             style={{
               background: `linear-gradient(135deg, ${config.primary_color}, ${config.secondary_color})`,
             }}
           >
-            <i className="fas fa-cart-shopping" />
+            <i className="fas fa-box-open" />
             {config.hero_button_text}
-          </Link>
-        </motion.div>
+          </UserRouteLink>
+        </div>
       </div>
     </section>
   )

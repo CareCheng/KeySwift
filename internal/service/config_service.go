@@ -89,18 +89,6 @@ func (s *ConfigService) GetEmailConfig() (*config.EmailConfig, error) {
 		}, nil
 	}
 
-	// 兼容旧数据：如果 Encryption 为空，根据端口推断
-	encryption := dbConfig.Encryption
-	if encryption == "" {
-		if dbConfig.SMTPPort == 465 {
-			encryption = "ssl"
-		} else if dbConfig.SMTPPort == 587 {
-			encryption = "starttls"
-		} else {
-			encryption = "none"
-		}
-	}
-
 	return &config.EmailConfig{
 		Enabled:      dbConfig.Enabled,
 		SMTPHost:     dbConfig.SMTPHost,
@@ -109,7 +97,7 @@ func (s *ConfigService) GetEmailConfig() (*config.EmailConfig, error) {
 		SMTPPassword: dbConfig.SMTPPassword,
 		FromName:     dbConfig.FromName,
 		FromEmail:    dbConfig.FromEmail,
-		Encryption:   encryption,
+		Encryption:   dbConfig.Encryption,
 		CodeLength:   dbConfig.CodeLength,
 	}, nil
 }

@@ -2,10 +2,11 @@ package api
 
 import (
 	"log"
+	"time"
 
 	"user-frontend/internal/config"
 	"user-frontend/internal/model"
-	"user-frontend/internal/utils"
+	"user-frontend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp/totp"
@@ -16,7 +17,7 @@ import (
 // CheckInitialSetup 检查是否需要初始化设置
 func CheckInitialSetup(c *gin.Context) {
 	needsSetup := false
-	
+
 	if ConfigSvc != nil {
 		needsSetup = ConfigSvc.NeedsInitialSetup()
 		log.Printf("[CheckInitialSetup] ConfigSvc存在, needsSetup=%v", needsSetup)
@@ -26,10 +27,10 @@ func CheckInitialSetup(c *gin.Context) {
 		needsSetup = cfg.AdminPassword == "admin123" || cfg.AdminPassword == ""
 		log.Printf("[CheckInitialSetup] ConfigSvc为nil, 检查GlobalConfig, password=%s, needsSetup=%v", cfg.AdminPassword, needsSetup)
 	}
-	
+
 	c.JSON(200, gin.H{
-		"success":      true,
-		"needs_setup":  needsSetup,
+		"success":     true,
+		"needs_setup": needsSetup,
 	})
 }
 
@@ -39,17 +40,17 @@ func SetInitialPassword(c *gin.Context) {
 		Password        string `json:"password" binding:"required,min=6"`
 		ConfirmPassword string `json:"confirm_password" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"success": false, "error": "密码长度至少6位"})
 		return
 	}
-	
+
 	if req.Password != req.ConfirmPassword {
 		c.JSON(400, gin.H{"success": false, "error": "两次输入的密码不一致"})
 		return
 	}
-	
+
 	// 检查是否需要初始化
 	needsSetup := false
 	if ConfigSvc != nil {
@@ -58,12 +59,12 @@ func SetInitialPassword(c *gin.Context) {
 		cfg := config.GlobalConfig.ServerConfig
 		needsSetup = cfg.AdminPassword == "admin123" || cfg.AdminPassword == ""
 	}
-	
+
 	if !needsSetup {
 		c.JSON(400, gin.H{"success": false, "error": "初始密码已设置，无法重复设置"})
 		return
 	}
-	
+
 	// 设置密码到配置
 	if ConfigSvc != nil {
 		if err := ConfigSvc.SetInitialPassword(req.Password); err != nil {
@@ -75,25 +76,19 @@ func SetInitialPassword(c *gin.Context) {
 		config.GlobalConfig.ServerConfig.AdminPassword = req.Password
 	}
 
-	// 同时创建或更新数据库中的管理员记录
 	if model.DBConnected {
-		// 优先使用 RoleSvc 创建新的 Admin 记录（角色权限系统）
 		if RoleSvc != nil {
-			// 检查是否已存在 admin 用户
 			existingAdmin, _ := RoleSvc.GetAdminByUsername("admin")
 			if existingAdmin == nil {
-				// 创建默认超级管理员
 				if err := RoleSvc.CreateSuperAdmin("admin", req.Password); err != nil {
-					// 记录错误但不中断，配置已保存成功
 					c.JSON(200, gin.H{
 						"success": true,
-						"message": "管理员密码设置成功（注意：数据库管理员创建失败，请使用配置文件登录）",
+						"message": "管理员密码设置成功（注意：数据库管理员创建失败）",
 						"warning": err.Error(),
 					})
 					return
 				}
 			} else {
-				// 更新现有管理员密码
 				if err := RoleSvc.UpdateAdminPassword(existingAdmin.ID, req.Password); err != nil {
 					c.JSON(200, gin.H{
 						"success": true,
@@ -103,20 +98,9 @@ func SetInitialPassword(c *gin.Context) {
 					return
 				}
 			}
-		} else if AdminSvc != nil {
-			// 回退到旧的 AdminService
-			if err := AdminSvc.InitDefaultAdmin("admin", req.Password); err != nil {
-				// 记录错误但不中断
-				c.JSON(200, gin.H{
-					"success": true,
-					"message": "管理员密码设置成功",
-					"warning": err.Error(),
-				})
-				return
-			}
 		}
 	}
-	
+
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": "管理员密码设置成功",
@@ -128,6 +112,28 @@ func AdminLoginPage(c *gin.Context) {
 	c.HTML(200, "admin_login.html", gin.H{
 		"title": "管理员登录",
 	})
+}
+
+func adminSessionPolicy(remember bool) (time.Duration, int) {
+	serverCfg := config.GlobalConfig.ServerConfig
+	if remember {
+		return 24 * time.Hour, 86400
+	}
+	if !serverCfg.EnableSessionTimeout {
+		return service.LongLivedSessionDuration, int(service.LongLivedSessionDuration.Seconds())
+	}
+	timeout := serverCfg.SessionTimeout
+	if timeout <= 0 {
+		timeout = 60
+	}
+	if timeout < 5 {
+		timeout = 5
+	}
+	if timeout > 1440 {
+		timeout = 1440
+	}
+	duration := time.Duration(timeout) * time.Minute
+	return duration, int(duration.Seconds())
 }
 
 // AdminTOTPPage 管理员TOTP验证页面
@@ -160,8 +166,12 @@ func AdminLogin(c *gin.Context) {
 			return
 		}
 
-		// 验证验证码
-		if req.CaptchaID != "" && req.CaptchaCode != "" {
+		// 按后台配置决定是否强制校验图形验证码。
+		if config.GlobalConfig.ServerConfig.EnableCaptcha {
+			if req.CaptchaID == "" || req.CaptchaCode == "" {
+				c.JSON(400, gin.H{"success": false, "error": "请输入验证码"})
+				return
+			}
 			if !VerifyCaptchaCode(req.CaptchaID, req.CaptchaCode) {
 				c.JSON(400, gin.H{"success": false, "error": "验证码错误"})
 				return
@@ -179,7 +189,8 @@ func AdminLogin(c *gin.Context) {
 			c.JSON(500, gin.H{"success": false, "error": "会话服务未初始化"})
 			return
 		}
-		sessionID, err := SessionSvc.CreateAdminSession(req.Username, "super_admin", c.ClientIP(), c.GetHeader("User-Agent"), req.Remember)
+		sessionDuration, cookieMaxAge := adminSessionPolicy(req.Remember)
+		sessionID, err := SessionSvc.CreateAdminSessionWithDuration(req.Username, "super_admin", c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
 		if err != nil {
 			c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 			return
@@ -190,11 +201,7 @@ func AdminLogin(c *gin.Context) {
 			SessionSvc.SetAdminSessionVerified(sessionID)
 		}
 
-		maxAge := 3600
-		if req.Remember {
-			maxAge = 86400
-		}
-		SetSecureCookie(c, "admin_session", sessionID, maxAge, true)
+		SetSecureCookie(c, "admin_session", sessionID, cookieMaxAge, true)
 		SetCSRFCookie(c, sessionID)
 
 		if cfg.ServerConfig.Enable2FA {
@@ -210,8 +217,7 @@ func AdminLogin(c *gin.Context) {
 		return
 	}
 
-	// 数据库已连接，使用数据库中的管理员账号
-	if AdminSvc == nil {
+	if RoleSvc == nil {
 		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
 		return
 	}
@@ -229,89 +235,50 @@ func AdminLogin(c *gin.Context) {
 		return
 	}
 
-	// 验证验证码
-	if req.CaptchaID != "" && req.CaptchaCode != "" {
+	// 按后台配置决定是否强制校验图形验证码。
+	if config.GlobalConfig.ServerConfig.EnableCaptcha {
+		if req.CaptchaID == "" || req.CaptchaCode == "" {
+			c.JSON(400, gin.H{"success": false, "error": "请输入验证码"})
+			return
+		}
 		if !VerifyCaptchaCode(req.CaptchaID, req.CaptchaCode) {
 			c.JSON(400, gin.H{"success": false, "error": "验证码错误"})
 			return
 		}
 	}
 
-	// 优先从新的 admins 表验证（角色权限系统）
-	var adminUsername string
-	var adminRole string
-	var enable2FA bool
-	var verified bool
-
-	if RoleSvc != nil {
-		newAdmin, err := RoleSvc.VerifyAdminPassword(req.Username, req.Password)
-		if err == nil {
-			// 新表验证成功
-			adminUsername = newAdmin.Username
-			if newAdmin.Role != nil {
-				adminRole = newAdmin.Role.Name
-			} else {
-				adminRole = "admin"
-			}
-			enable2FA = newAdmin.Enable2FA
-			verified = true
-			// 更新登录信息
-			RoleSvc.UpdateAdminLoginInfo(newAdmin.ID, c.ClientIP())
-		}
-	}
-
-	// 新表验证失败，尝试旧的 admin_users 表
-	if !verified && AdminSvc != nil {
-		oldAdmin, err := AdminSvc.Login(req.Username, req.Password, c.ClientIP())
-		if err == nil {
-			adminUsername = oldAdmin.Username
-			adminRole = oldAdmin.Role
-			enable2FA = oldAdmin.Enable2FA
-			verified = true
-		}
-	}
-
-	// 数据库表都没有记录，回退到配置文件验证
-	if !verified {
-		cfg := config.GlobalConfig
-		if req.Username == cfg.ServerConfig.AdminUsername && req.Password == cfg.ServerConfig.AdminPassword {
-			adminUsername = cfg.ServerConfig.AdminUsername
-			adminRole = "super_admin"
-			enable2FA = cfg.ServerConfig.Enable2FA
-			verified = true
-		}
-	}
-
-	// 所有验证方式都失败
-	if !verified {
+	admin, err := RoleSvc.VerifyAdminPassword(req.Username, req.Password)
+	if err != nil {
 		c.JSON(400, gin.H{"success": false, "error": "用户名或密码错误"})
 		return
 	}
+	adminRole := "admin"
+	if admin.Role != nil {
+		adminRole = admin.Role.Name
+	}
+	_ = RoleSvc.UpdateAdminLoginInfo(admin.ID, c.ClientIP())
 
 	// 创建会话（数据库持久化）
 	if SessionSvc == nil {
 		c.JSON(500, gin.H{"success": false, "error": "会话服务未初始化"})
 		return
 	}
-	sessionID, err := SessionSvc.CreateAdminSession(adminUsername, adminRole, c.ClientIP(), c.GetHeader("User-Agent"), req.Remember)
+	sessionDuration, cookieMaxAge := adminSessionPolicy(req.Remember)
+	sessionID, err := SessionSvc.CreateAdminSessionWithDuration(admin.Username, adminRole, c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
 	if err != nil {
 		c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 		return
 	}
 
 	// 如果未启用2FA则直接验证通过
-	if !enable2FA {
+	if !admin.Enable2FA {
 		SessionSvc.SetAdminSessionVerified(sessionID)
 	}
 
-	maxAge := 3600
-	if req.Remember {
-		maxAge = 86400
-	}
-	SetSecureCookie(c, "admin_session", sessionID, maxAge, true)
+	SetSecureCookie(c, "admin_session", sessionID, cookieMaxAge, true)
 	SetCSRFCookie(c, sessionID)
 
-	if enable2FA {
+	if admin.Enable2FA {
 		c.JSON(200, gin.H{
 			"success":      true,
 			"require_totp": true,
@@ -354,7 +321,15 @@ func AdminVerifyTOTP(c *gin.Context) {
 	// 获取TOTP密钥
 	var totpSecret string
 	if model.DBConnected {
-		_, secret, _ := AdminSvc.GetAdmin2FAStatus(session.Username)
+		if RoleSvc == nil {
+			c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
+			return
+		}
+		_, secret, err := RoleSvc.GetAdmin2FAStatus(session.Username)
+		if err != nil {
+			c.JSON(400, gin.H{"success": false, "error": "两步验证状态不存在"})
+			return
+		}
 		totpSecret = secret
 	} else {
 		totpSecret = config.GlobalConfig.ServerConfig.TOTPSecret
@@ -446,6 +421,10 @@ func AdminEnable2FA(c *gin.Context) {
 		c.JSON(500, gin.H{"success": false, "error": "数据库未连接"})
 		return
 	}
+	if RoleSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
+		return
+	}
 
 	username := c.GetString("admin_username")
 
@@ -464,7 +443,7 @@ func AdminEnable2FA(c *gin.Context) {
 		return
 	}
 
-	if err := AdminSvc.Enable2FA(username, req.Secret); err != nil {
+	if err := RoleSvc.EnableAdmin2FA(username, req.Secret); err != nil {
 		c.JSON(500, gin.H{"success": false, "error": err.Error()})
 		return
 	}
@@ -476,6 +455,10 @@ func AdminEnable2FA(c *gin.Context) {
 func AdminDisable2FA(c *gin.Context) {
 	if !model.DBConnected {
 		c.JSON(500, gin.H{"success": false, "error": "数据库未连接"})
+		return
+	}
+	if RoleSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
 		return
 	}
 
@@ -490,13 +473,11 @@ func AdminDisable2FA(c *gin.Context) {
 		return
 	}
 
-	// 验证密码
-	admin, _ := AdminSvc.GetAdminByUsername(username)
-	if admin == nil || !utils.CheckPassword(req.Password, admin.PasswordHash) {
+	if _, err := RoleSvc.VerifyAdminPassword(username, req.Password); err != nil {
 		c.JSON(400, gin.H{"success": false, "error": "密码错误"})
 		return
 	}
-	if err := AdminSvc.Disable2FA(username); err != nil {
+	if err := RoleSvc.DisableAdmin2FA(username); err != nil {
 		c.JSON(500, gin.H{"success": false, "error": err.Error()})
 		return
 	}
@@ -510,9 +491,13 @@ func AdminGet2FAStatus(c *gin.Context) {
 		c.JSON(500, gin.H{"success": false, "error": "数据库未连接"})
 		return
 	}
+	if RoleSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "服务未初始化"})
+		return
+	}
 
 	username := c.GetString("admin_username")
-	enabled, _, _ := AdminSvc.GetAdmin2FAStatus(username)
+	enabled, _, _ := RoleSvc.GetAdmin2FAStatus(username)
 
 	c.JSON(200, gin.H{
 		"success": true,

@@ -38,18 +38,15 @@ func (s *OrderService) SetManualKamiService(manualKamiSvc *ManualKamiService) {
 
 // CreateOrderParams 创建订单参数
 type CreateOrderParams struct {
-	UserID     uint
-	Username   string
-	ProductID  uint
-	Quantity   int     // 购买数量
-	ClientIP   string
-	Remark     string
-	CouponCode string  // 优惠券码
-	CouponID   uint    // 优惠券ID
-	Discount   float64 // 优惠金额
+	UserID    uint
+	Username  string
+	ProductID uint
+	Quantity  int
+	ClientIP  string
+	Remark    string
 }
 
-// CreateOrder 创建订单（单个数量，向后兼容）
+// CreateOrder 创建单数量订单。
 // 使用手动卡密模式：本地生成订单号，从卡密池分配卡密
 func (s *OrderService) CreateOrder(userID uint, username string, productID uint, clientIP string) (*model.Order, error) {
 	return s.CreateOrderWithParams(&CreateOrderParams{
@@ -90,8 +87,6 @@ func (s *OrderService) CreateOrderWithRemark(userID uint, username string, produ
 // CreateOrderWithParams 创建订单（完整参数）
 // 安全特性：
 //   - 锁定商品原价到订单
-//   - 记录优惠券信息
-//   - 计算实际应付金额
 //   - 支持多数量购买
 func (s *OrderService) CreateOrderWithParams(params *CreateOrderParams) (*model.Order, error) {
 	// 获取商品信息
@@ -121,36 +116,25 @@ func (s *OrderService) CreateOrderWithParams(params *CreateOrderParams) (*model.
 	// 生成订单号（本地生成）
 	orderNo := utils.GenerateLocalOrderNo()
 
-	// 计算实际应付金额（单价 * 数量 - 优惠）
+	// 计算应付金额（单价 * 数量）
 	unitPrice := product.Price
 	originalPrice := unitPrice * float64(quantity)
-	discountAmount := params.Discount
-	if discountAmount < 0 {
-		discountAmount = 0
-	}
-	if discountAmount > originalPrice {
-		discountAmount = originalPrice
-	}
-	finalPrice := originalPrice - discountAmount
 
 	// 创建订单，锁定价格
 	order := &model.Order{
-		OrderNo:        orderNo,
-		UserID:         params.UserID,
-		Username:       params.Username,
-		ProductID:      params.ProductID,
-		ProductName:    product.Name,
-		Quantity:       quantity,       // 购买数量
-		OriginalPrice:  originalPrice,  // 锁定原价（单价*数量）
-		DiscountAmount: discountAmount, // 优惠金额
-		Price:          finalPrice,     // 实际应付
-		CouponID:       params.CouponID,
-		CouponCode:     params.CouponCode,
-		Duration:       product.Duration,
-		DurationUnit:   product.DurationUnit,
-		Status:         model.OrderStatusPending,
-		ClientIP:       params.ClientIP,
-		Remark:         params.Remark,
+		OrderNo:       orderNo,
+		UserID:        params.UserID,
+		Username:      params.Username,
+		ProductID:     params.ProductID,
+		ProductName:   product.Name,
+		Quantity:      quantity,
+		OriginalPrice: originalPrice,
+		Price:         originalPrice,
+		Duration:      product.Duration,
+		DurationUnit:  product.DurationUnit,
+		Status:        model.OrderStatusPending,
+		ClientIP:      params.ClientIP,
+		Remark:        params.Remark,
 	}
 
 	if err := s.repo.CreateOrder(order); err != nil {
@@ -217,7 +201,7 @@ func (s *OrderService) ProcessPaymentWithAmount(orderNo, paymentMethod, paymentN
 			return nil, errors.New("库存扣减失败")
 		}
 		if affected == 0 {
-			return nil, errors.New("商品库存不足，请联系客服处理")
+			return nil, errors.New("商品库存不足，请联系管理员处理")
 		}
 	}
 

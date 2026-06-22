@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Toaster } from 'react-hot-toast'
+import { RouteTransitionProvider } from '@/components/layout/RouteTransitionProvider'
 import { ThemeProvider } from '@/lib/theme'
 // 引入本地 Font Awesome 样式
 import '@fortawesome/fontawesome-free/css/all.min.css'
@@ -33,7 +34,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen transition-colors duration-300">
         <ThemeProvider>
-          {children}
+          <RouteTransitionProvider>{children}</RouteTransitionProvider>
           <Toaster
             position="top-center"
             toastOptions={{

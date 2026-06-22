@@ -28,26 +28,15 @@ export function DashboardPage() {
     stats: { total_orders: number; paid_orders: number; total_revenue: number; today_orders: number }
   } | null>(null)
   const [loading, setLoading] = useState(true)
-  const [chartDays, setChartDays] = useState(7)
-  const [chartData, setChartData] = useState<{ date: string; order_count: number; revenue: number }[]>([])
 
   useEffect(() => {
     loadDashboard()
   }, [])
 
-  useEffect(() => {
-    loadChart()
-  }, [chartDays])
-
   const loadDashboard = async () => {
     const res = await apiGet<typeof data>('/api/admin/dashboard')
     if (res.success) setData(res as typeof data)
     setLoading(false)
-  }
-
-  const loadChart = async () => {
-    const res = await apiGet<{ stats: typeof chartData }>(`/api/admin/stats/chart?days=${chartDays}`)
-    if (res.success && res.stats) setChartData(res.stats)
   }
 
   if (loading) {
@@ -77,41 +66,6 @@ export function DashboardPage() {
         <StatCard icon="💰" value={`¥${stats.total_revenue.toFixed(2)}`} label="总收入" />
         <StatCard icon="📈" value={stats.today_orders} label="今日订单" />
       </div>
-
-      {/* 订单趋势图表 */}
-      <Card title="📊 订单趋势">
-        <div className="flex flex-wrap gap-2 mb-4">
-          {[7, 14, 30].map((days) => (
-            <Button key={days} size="sm" variant={chartDays === days ? 'primary' : 'secondary'} onClick={() => setChartDays(days)}>
-              近{days}天
-            </Button>
-          ))}
-        </div>
-        <div className="h-48 sm:h-64">
-          {chartData.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-dark-500">暂无数据</div>
-          ) : (
-            <div className="h-full flex items-end gap-1 sm:gap-2">
-              {chartData.map((item, index) => {
-                const maxOrders = Math.max(...chartData.map((d) => d.order_count), 1)
-                const height = (item.order_count / maxOrders) * 100
-                return (
-                  <div key={index} className="flex-1 flex flex-col items-center min-w-0">
-                    <div 
-                      className="w-full bg-primary-500/50 rounded-t transition-all hover:bg-primary-500/70" 
-                      style={{ height: `${Math.max(height, 2)}%` }} 
-                      title={`订单: ${item.order_count}, 收入: ¥${item.revenue.toFixed(2)}`} 
-                    />
-                    <div className="text-[10px] sm:text-xs text-dark-500 mt-1 sm:mt-2 truncate w-full text-center">
-                      {item.date.slice(5)}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </Card>
 
       {/* 快捷操作 */}
       <Card title="快捷操作">

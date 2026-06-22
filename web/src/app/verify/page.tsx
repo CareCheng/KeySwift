@@ -2,12 +2,13 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { motion } from 'framer-motion'
+import { useRouter, useSearchParams } from 'next/navigation'
 import toast from 'react-hot-toast'
+import { AuthPageTransition } from '@/components/layout/AuthPageTransition'
 import { Button, Input } from '@/components/ui'
 import { apiGet, apiPost } from '@/lib/api'
 import { useI18n } from '@/hooks/useI18n'
+import { buildUserRouteUrl } from '@/lib/userNavigation'
 
 /**
  * 二次验证信息接口
@@ -25,6 +26,7 @@ interface VerifyInfo {
  */
 function VerifyContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const token = searchParams.get('token') || ''
   const { t } = useI18n()
 
@@ -40,7 +42,7 @@ function VerifyContent() {
   useEffect(() => {
     if (!token) {
       toast.error(t('auth.invalidRequest'))
-      setTimeout(() => (window.location.href = '/login/'), 2000)
+      setTimeout(() => router.push('/login/'), 2000)
       return
     }
 
@@ -56,12 +58,12 @@ function VerifyContent() {
         })
       } else {
         toast.error(res.error || t('auth.infoExpired'))
-        setTimeout(() => (window.location.href = '/login/'), 2000)
+        setTimeout(() => router.push('/login/'), 2000)
       }
       setLoading(false)
     }
     loadVerifyInfo()
-  }, [token, t])
+  }, [token, t, router])
 
   // 倒计时
   useEffect(() => {
@@ -119,7 +121,7 @@ function VerifyContent() {
 
     if (res.success) {
       toast.success(t('auth.verifySuccess'))
-      setTimeout(() => (window.location.href = '/products/'), 1000)
+      setTimeout(() => router.push(buildUserRouteUrl('products')), 1000)
     } else {
       toast.error(res.error || t('auth.verifyFailed'))
     }
@@ -144,11 +146,7 @@ function VerifyContent() {
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/20 rounded-full blur-3xl" />
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="relative w-full max-w-md"
-      >
+      <AuthPageTransition mode="login">
         <div className="card p-8">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-dark-100 mb-2">{t('auth.verifyTitle')}</h1>
@@ -221,7 +219,7 @@ function VerifyContent() {
             </Link>
           </div>
         </div>
-      </motion.div>
+      </AuthPageTransition>
     </div>
   )
 }

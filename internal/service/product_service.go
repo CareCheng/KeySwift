@@ -89,9 +89,7 @@ func (s *ProductService) invalidateProductListCache() {
 		return
 	}
 
-	// 清除常见的列表缓存键（这里只清除一些常用的分页参数）
-	// 由于列表缓存键包含分页参数，无法枚举所有，采用模式匹配或跳过
-	// 实际生产中可使用 Redis 的 SCAN 命令按前缀删除
+	// 清除常见的列表缓存键；列表缓存键包含分页参数，无法枚举所有组合。
 	commonPages := []int{1, 2, 3, 4, 5}
 	commonSizes := []int{10, 20, 50}
 	for _, page := range commonPages {
@@ -105,7 +103,7 @@ func (s *ProductService) invalidateProductListCache() {
 }
 
 // CreateProduct 创建商品
-func (s *ProductService) CreateProduct(name, description string, price float64, duration int, durationUnit string, stock int, imageURL string) (*model.Product, error) {
+func (s *ProductService) CreateProduct(name, description string, price float64, duration int, durationUnit string, stock int) (*model.Product, error) {
 	if name == "" {
 		return nil, errors.New("商品名称不能为空")
 	}
@@ -124,7 +122,6 @@ func (s *ProductService) CreateProduct(name, description string, price float64, 
 		DurationUnit: durationUnit,
 		Stock:        stock,
 		Status:       1,
-		ImageURL:     imageURL,
 		ProductType:  model.ProductTypeManual, // 默认手动卡密类型
 	}
 
@@ -151,7 +148,7 @@ func (s *ProductService) CreateProductFull(product *model.Product) error {
 }
 
 // UpdateProduct 更新商品
-func (s *ProductService) UpdateProduct(id uint, name, description string, price float64, duration int, durationUnit string, stock int, status int, imageURL string) (*model.Product, error) {
+func (s *ProductService) UpdateProduct(id uint, name, description string, price float64, duration int, durationUnit string, stock int, status int) (*model.Product, error) {
 	product, err := s.repo.GetProductByID(id)
 	if err != nil {
 		return nil, errors.New("商品不存在")
@@ -175,7 +172,6 @@ func (s *ProductService) UpdateProduct(id uint, name, description string, price 
 		product.Stock = stock
 	}
 	product.Status = status
-	product.ImageURL = imageURL
 
 	if err := s.repo.UpdateProduct(product); err != nil {
 		return nil, err
@@ -265,21 +261,6 @@ func (s *ProductService) UpdateProductStock(id uint, stock int) error {
 	}
 
 	product.Stock = stock
-	err = s.repo.UpdateProduct(product)
-	if err == nil {
-		s.invalidateProductCache(id)
-	}
-	return err
-}
-
-// UpdateProductImageURL 更新商品图片URL
-func (s *ProductService) UpdateProductImageURL(id uint, imageURL string) error {
-	product, err := s.repo.GetProductByID(id)
-	if err != nil {
-		return errors.New("商品不存在")
-	}
-
-	product.ImageURL = imageURL
 	err = s.repo.UpdateProduct(product)
 	if err == nil {
 		s.invalidateProductCache(id)

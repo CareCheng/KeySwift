@@ -171,7 +171,6 @@ export function LogsPage() {
       'user': '用户',
       'system': '系统',
       'payment': '支付',
-      'support': '客服',
       'security': '安全',
     }
     return labels[category] || category
@@ -186,7 +185,6 @@ export function LogsPage() {
       'user': 'bg-cyan-500/20 text-cyan-400',
       'system': 'bg-orange-500/20 text-orange-400',
       'payment': 'bg-emerald-500/20 text-emerald-400',
-      'support': 'bg-pink-500/20 text-pink-400',
       'security': 'bg-red-500/20 text-red-400',
     }
     return styles[category] || 'bg-gray-500/20 text-gray-400'
@@ -293,7 +291,6 @@ export function LogsPage() {
               <option value="user">用户</option>
               <option value="system">系统</option>
               <option value="payment">支付</option>
-              <option value="support">客服</option>
               <option value="security">安全</option>
             </select>
           </div>
