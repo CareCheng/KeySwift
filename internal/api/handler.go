@@ -4,8 +4,10 @@ package api
 
 import (
 	"log"
+	"time"
 
 	"user-frontend/internal/config"
+	"user-frontend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,6 +37,7 @@ func PageAuthRequired() gin.HandlerFunc {
 
 		c.Set("user_id", session.UserID)
 		c.Set("username", session.Username)
+		attachUserSubjectContext(c, sessionID)
 		c.Next()
 	}
 }
@@ -64,6 +67,7 @@ func AuthRequired() gin.HandlerFunc {
 
 		c.Set("user_id", session.UserID)
 		c.Set("username", session.Username)
+		attachUserSubjectContext(c, sessionID)
 		c.Next()
 	}
 }
@@ -77,6 +81,7 @@ func OptionalAuth() gin.HandlerFunc {
 			if err == nil {
 				c.Set("user_id", session.UserID)
 				c.Set("username", session.Username)
+				attachUserSubjectContext(c, sessionID)
 			}
 		}
 		c.Next()
@@ -92,6 +97,7 @@ func AdminAuthRequired() gin.HandlerFunc {
 			log.Printf("[AdminAuthRequired] 登录验证已禁用，直接放行")
 			c.Set("admin_username", config.GlobalConfig.ServerConfig.AdminUsername)
 			c.Set("admin_role", "super_admin")
+			attachBypassAdminSubjectContext(c)
 			c.Next()
 			return
 		}
@@ -124,15 +130,59 @@ func AdminAuthRequired() gin.HandlerFunc {
 
 		c.Set("admin_username", session.Username)
 		c.Set("admin_role", session.Role)
+		attachAdminSubjectContext(c, sessionID)
 		c.Next()
 	}
+}
+
+func attachUserSubjectContext(c *gin.Context, sessionID string) {
+	if SubjectSvc == nil || sessionID == "" {
+		return
+	}
+	if subject, err := SubjectSvc.BuildUserSubjectBySession(sessionID); err == nil {
+		c.Set(subjectContextKey, subject)
+		c.Set("subject_id", subject.SubjectID)
+		c.Set("subject_type", subject.SubjectType)
+	}
+}
+
+func attachAdminSubjectContext(c *gin.Context, sessionID string) {
+	if SubjectSvc == nil || sessionID == "" {
+		return
+	}
+	if subject, err := SubjectSvc.BuildAdminSubjectBySession(sessionID); err == nil {
+		c.Set(subjectContextKey, subject)
+		c.Set("subject_id", subject.SubjectID)
+		c.Set("subject_type", subject.SubjectType)
+	}
+}
+
+func attachBypassAdminSubjectContext(c *gin.Context) {
+	if SubjectSvc == nil {
+		return
+	}
+	expiresAt := time.Now().Add(service.LongLivedSessionDuration)
+	subject, err := SubjectSvc.BuildAdminSubject(
+		"admin-login-disabled",
+		config.GlobalConfig.ServerConfig.AdminUsername,
+		"super_admin",
+		expiresAt,
+		GetClientIP(c),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		return
+	}
+	c.Set(subjectContextKey, subject)
+	c.Set("subject_id", subject.SubjectID)
+	c.Set("subject_type", subject.SubjectType)
 }
 
 // AdminPortalAccess 管理后台入口
 func AdminPortalAccess(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 设置访问权限Cookie
-		c.SetCookie("admin_portal_access", "true", 3600, "/", "", false, true)
+		SetSecureCookie(c, "admin_portal_access", "true", 3600, true)
 
 		// 如果禁用了登录验证，直接进入管理后台
 		if !cfg.ServerConfig.EnableLogin {

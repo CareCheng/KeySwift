@@ -51,7 +51,7 @@ func (r *MemoryRegistry) RegisterManifest(_ context.Context, manifest Manifest) 
 
 	r.manifests[manifest.ID] = manifest
 	r.permissions[manifest.ID] = append([]PermissionDeclaration(nil), manifest.Permissions...)
-	if manifest.Backend.SettingsRef != "" || manifest.Frontend.Enabled {
+	if manifest.Backend.SettingsRef != "" {
 		r.configs[manifest.ID] = ConfigSchema{
 			SchemaVersion: ManifestVersion,
 			PluginID:      manifest.ID,
@@ -59,6 +59,8 @@ func (r *MemoryRegistry) RegisterManifest(_ context.Context, manifest Manifest) 
 			Sections:      nil,
 			Extensions:    ExtensionMap{},
 		}
+	} else {
+		delete(r.configs, manifest.ID)
 	}
 	if manifest.UI.Enabled || manifest.PluginKind == PluginKindUITheme {
 		r.themes[manifest.ID] = manifest.UI
@@ -72,6 +74,40 @@ func (r *MemoryRegistry) SetRuntime(pluginID string, runtime RuntimePlugin) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.runtimes[pluginID] = runtime
+}
+
+// RegisterConfigSchema 注册插件 release 内声明的真实配置 schema。
+func (r *MemoryRegistry) RegisterConfigSchema(pluginID string, schema ConfigSchema) error {
+	if pluginID == "" {
+		return errors.New("插件ID不能为空")
+	}
+	if schema.PluginID == "" {
+		schema.PluginID = pluginID
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.configs[pluginID] = schema
+	return nil
+}
+
+// UnregisterPlugin 移除指定插件在内存注册中心中的全部快照。
+func (r *MemoryRegistry) UnregisterPlugin(pluginID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.manifests, pluginID)
+	delete(r.runtimes, pluginID)
+	delete(r.permissions, pluginID)
+	delete(r.configs, pluginID)
+	delete(r.themes, pluginID)
+	r.rebuildFrontendLocked()
+}
+
+// GetConfigSchema 获取单个插件配置 schema。
+func (r *MemoryRegistry) GetConfigSchema(pluginID string) (ConfigSchema, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	schema, ok := r.configs[pluginID]
+	return schema, ok
 }
 
 // GetManifest 获取单个插件 manifest。

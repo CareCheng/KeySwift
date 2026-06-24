@@ -8,6 +8,7 @@ import (
 
 	"user-frontend/internal/config"
 	"user-frontend/internal/model"
+	pluginapi "user-frontend/internal/plugin"
 	"user-frontend/internal/repository"
 	"user-frontend/internal/utils"
 )
@@ -17,6 +18,7 @@ type OrderService struct {
 	cfg           *config.Config
 	configSvc     *ConfigService
 	manualKamiSvc *ManualKamiService
+	orderKernel   *OrderKernelService
 }
 
 func NewOrderService(repo *repository.Repository, cfg *config.Config) *OrderService {
@@ -34,6 +36,11 @@ func (s *OrderService) SetConfigService(configSvc *ConfigService) {
 // SetManualKamiService 设置手动卡密服务
 func (s *OrderService) SetManualKamiService(manualKamiSvc *ManualKamiService) {
 	s.manualKamiSvc = manualKamiSvc
+}
+
+// SetOrderKernelService 设置宿主订单内核服务。
+func (s *OrderService) SetOrderKernelService(orderKernel *OrderKernelService) {
+	s.orderKernel = orderKernel
 }
 
 // CreateOrderParams 创建订单参数
@@ -113,30 +120,57 @@ func (s *OrderService) CreateOrderWithParams(params *CreateOrderParams) (*model.
 		return nil, fmt.Errorf("商品库存不足，当前库存: %d", product.Stock)
 	}
 
-	// 生成订单号（本地生成）
-	orderNo := utils.GenerateLocalOrderNo()
-
-	// 计算应付金额（单价 * 数量）
-	unitPrice := product.Price
-	originalPrice := unitPrice * float64(quantity)
-
-	// 创建订单，锁定价格
-	order := &model.Order{
-		OrderNo:       orderNo,
-		UserID:        params.UserID,
-		Username:      params.Username,
-		ProductID:     params.ProductID,
-		ProductName:   product.Name,
-		Quantity:      quantity,
-		OriginalPrice: originalPrice,
-		Price:         originalPrice,
-		Duration:      product.Duration,
-		DurationUnit:  product.DurationUnit,
-		Status:        model.OrderStatusPending,
-		ClientIP:      params.ClientIP,
-		Remark:        params.Remark,
+	if s.orderKernel != nil {
+		return s.orderKernel.CreateHostOrder(HostOrderMaterial{
+			UserID:       params.UserID,
+			Username:     params.Username,
+			ProductID:    params.ProductID,
+			ProductName:  product.Name,
+			Quantity:     quantity,
+			UnitPrice:    product.Price,
+			Duration:     product.Duration,
+			DurationUnit: product.DurationUnit,
+			ClientIP:     params.ClientIP,
+			Remark:       params.Remark,
+			ItemSnapshot: map[string]any{
+				"product_id":    product.ID,
+				"product_name":  product.Name,
+				"price":         product.Price,
+				"duration":      product.Duration,
+				"duration_unit": product.DurationUnit,
+			},
+			DeliveryRequirement: map[string]any{
+				"mode": "manual_kami",
+			},
+		})
 	}
 
+	orderNo := utils.GenerateLocalOrderNo()
+	unitPrice := product.Price
+	originalPrice := unitPrice * float64(quantity)
+	order := &model.Order{
+		OrderNo:            orderNo,
+		BuyerSubjectID:     fmt.Sprintf("user:%d", params.UserID),
+		UserID:             params.UserID,
+		Username:           params.Username,
+		ProductID:          params.ProductID,
+		ProductName:        product.Name,
+		Quantity:           quantity,
+		OriginalPrice:      originalPrice,
+		Price:              originalPrice,
+		AmountTotalCents:   moneyToCents(originalPrice),
+		AmountPayableCents: moneyToCents(originalPrice),
+		Currency:           "CNY",
+		Duration:           product.Duration,
+		DurationUnit:       product.DurationUnit,
+		Status:             model.OrderStatusPending,
+		OrderStatus:        model.OrderKernelStatusPendingPayment,
+		PaymentStatus:      model.PaymentStatusUnpaid,
+		DeliveryStatus:     model.DeliveryStatusUnfulfilled,
+		Version:            1,
+		ClientIP:           params.ClientIP,
+		Remark:             params.Remark,
+	}
 	if err := s.repo.CreateOrder(order); err != nil {
 		return nil, err
 	}
@@ -176,6 +210,11 @@ func (s *OrderService) ProcessPaymentWithAmount(orderNo, paymentMethod, paymentN
 			return order, nil
 		}
 		return nil, errors.New("订单状态异常")
+	}
+
+	attempt, err := s.ensurePaymentAttempt(order, paymentMethod)
+	if err != nil {
+		return nil, err
 	}
 
 	// 验证支付金额（如果提供了金额）
@@ -223,18 +262,78 @@ func (s *OrderService) ProcessPaymentWithAmount(orderNo, paymentMethod, paymentN
 	// 更新订单状态
 	now := time.Now()
 	order.Status = model.OrderStatusCompleted
+	order.OrderStatus = model.OrderKernelStatusCompleted
+	order.PaymentStatus = model.PaymentStatusPaid
+	order.DeliveryStatus = model.DeliveryStatusFulfilled
 	order.PaymentMethod = paymentMethod
 	order.PaymentNo = paymentNo
 	order.PaymentTime = &now
 	order.PaidAmount = paidAmount
+	if paidAmount > 0 {
+		order.AmountPaidCents = moneyToCents(paidAmount)
+	} else {
+		order.AmountPaidCents = order.AmountPayableCents
+	}
+	order.Version++
 	// 多个卡密用换行符分隔
 	order.KamiCode = strings.Join(kamiCodes, "\n")
+
+	if s.orderKernel != nil {
+		if _, err := s.orderKernel.SubmitPaymentFact(pluginapi.PaymentFact{
+			AttemptNo:             attempt.AttemptNo,
+			OrderNo:               order.OrderNo,
+			PaymentPluginID:       "host.balance",
+			PaymentChannel:        paymentMethod,
+			ProviderTransactionID: paymentNo,
+			ProviderStatus:        "paid",
+			AmountCents:           order.AmountPaidCents,
+			Currency:              order.Currency,
+			Verified:              true,
+			IdempotencyKey:        "payment:" + order.OrderNo + ":" + paymentNo,
+			CallbackPayload:       map[string]any{"payment_method": paymentMethod},
+		}); err != nil {
+			return nil, err
+		}
+		delivery, err := s.orderKernel.CreateDeliveryTask(order.OrderNo, "host.manual_kami", "manual_kami", "delivery:"+order.OrderNo)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.orderKernel.SubmitDeliveryFact(pluginapi.FulfillmentFact{
+			DeliveryNo:          delivery.DeliveryNo,
+			OrderNo:             order.OrderNo,
+			FulfillmentPluginID: "host.manual_kami",
+			FactType:            "manual_kami.assigned",
+			Status:              DeliveryStatusSuccess,
+			ResultPayload:       map[string]any{"kami_count": len(kamiCodes)},
+			IdempotencyKey:      "delivery_fact:" + order.OrderNo,
+		}); err != nil {
+			return nil, err
+		}
+		return s.repo.GetOrderByOrderNo(order.OrderNo)
+	}
 
 	if err := s.repo.UpdateOrder(order); err != nil {
 		return nil, err
 	}
 
 	return order, nil
+}
+
+func (s *OrderService) ensurePaymentAttempt(order *model.Order, paymentMethod string) (*model.OrderPaymentAttempt, error) {
+	if s.orderKernel != nil {
+		return s.orderKernel.CreatePaymentAttempt(order.OrderNo, "host.balance", paymentMethod, "pay:"+order.OrderNo+":"+paymentMethod)
+	}
+	return &model.OrderPaymentAttempt{
+		AttemptNo:       "legacy-" + order.OrderNo,
+		OrderID:         order.ID,
+		OrderNo:         order.OrderNo,
+		PaymentPluginID: "host.balance",
+		PaymentChannel:  paymentMethod,
+		AmountCents:     order.AmountPayableCents,
+		Currency:        order.Currency,
+		Status:          PaymentAttemptStatusCreated,
+		IdempotencyKey:  "pay:" + order.OrderNo + ":" + paymentMethod,
+	}, nil
 }
 
 // getManualKami 从手动卡密池获取卡密

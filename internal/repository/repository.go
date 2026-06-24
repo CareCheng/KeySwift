@@ -188,7 +188,7 @@ func (r *Repository) GetOrderStats() (map[string]interface{}, error) {
 // SystemSetting 相关操作
 func (r *Repository) GetSetting(key string) (string, error) {
 	var setting model.SystemSetting
-	err := r.db.Where("`key` = ?", key).First(&setting).Error
+	err := r.db.Where(&model.SystemSetting{Key: key}).First(&setting).Error
 	if err != nil {
 		return "", err
 	}
@@ -197,7 +197,7 @@ func (r *Repository) GetSetting(key string) (string, error) {
 
 func (r *Repository) SetSetting(key, value, remark string) error {
 	var setting model.SystemSetting
-	err := r.db.Where("`key` = ?", key).First(&setting).Error
+	err := r.db.Where(&model.SystemSetting{Key: key}).First(&setting).Error
 	if err != nil {
 		// 不存在则创建
 		setting = model.SystemSetting{
@@ -587,20 +587,36 @@ func (r *Repository) DeletePluginBindings(pluginID string) error {
 	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginBinding{}).Error
 }
 
-func (r *Repository) UpsertPluginConfig(record *model.PluginConfig) error {
-	var existing model.PluginConfig
-	err := r.db.Where("plugin_id = ? AND config_key = ?", record.PluginID, record.ConfigKey).First(&existing).Error
-	if err != nil {
-		return r.db.Create(record).Error
-	}
-	record.ID = existing.ID
-	return r.db.Save(record).Error
+func (r *Repository) DeletePluginArtifacts(pluginID string) error {
+	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginArtifact{}).Error
 }
 
-func (r *Repository) ListPluginConfigs(pluginID string) ([]model.PluginConfig, error) {
-	var records []model.PluginConfig
-	err := r.db.Where("plugin_id = ?", pluginID).Order("config_key ASC").Find(&records).Error
-	return records, err
+func (r *Repository) DeletePluginEventLogs(pluginID string) error {
+	return r.db.Where("owner_plugin_id = ?", pluginID).Delete(&model.PluginEventLog{}).Error
+}
+
+func (r *Repository) DeletePluginJobs(pluginID string) error {
+	return r.db.Where("owner_plugin_id = ?", pluginID).Delete(&model.PluginJob{}).Error
+}
+
+func (r *Repository) DeletePluginVersions(pluginID string) error {
+	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginVersion{}).Error
+}
+
+func (r *Repository) DeletePluginRuntimeSessions(pluginID string) error {
+	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginRuntimeSession{}).Error
+}
+
+func (r *Repository) DeletePluginTrustRecords(pluginID string) error {
+	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginTrustRecord{}).Error
+}
+
+func (r *Repository) DeletePermissionDefinitionsByPlugin(pluginID string) error {
+	return r.db.Where("owner_type = ? AND owner_plugin_id = ?", "plugin", pluginID).Delete(&model.PermissionDefinition{}).Error
+}
+
+func (r *Repository) DeletePluginRegistry(pluginID string) error {
+	return r.db.Where("plugin_id = ?", pluginID).Delete(&model.PluginRegistry{}).Error
 }
 
 func (r *Repository) UpsertPluginEventLog(record *model.PluginEventLog) error {

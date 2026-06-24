@@ -78,22 +78,6 @@ type PluginBinding struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-// PluginConfig 存储插件配置值与 schema 摘要。
-type PluginConfig struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	PluginID        string    `gorm:"size:120;index" json:"plugin_id"`
-	ConfigKey       string    `gorm:"size:180;index" json:"config_key"`
-	ConfigVersion   int       `gorm:"default:1" json:"config_version"`
-	SchemaJSON      string    `gorm:"type:text" json:"schema_json"`
-	ValueJSON       string    `gorm:"type:text" json:"value_json"`
-	EncryptedFields string    `gorm:"type:text" json:"encrypted_fields"`
-	Enabled         bool      `gorm:"default:true" json:"enabled"`
-	UpdatedBy       string    `gorm:"size:120" json:"updated_by"`
-	ExtensionsJSON  string    `gorm:"type:text" json:"extensions_json"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-}
-
 // PluginEventLog 记录宿主与插件事件总线事件。
 type PluginEventLog struct {
 	ID             uint      `gorm:"primaryKey" json:"id"`
@@ -279,10 +263,6 @@ func (PluginArtifact) TableName() string {
 
 func (PluginBinding) TableName() string {
 	return "plugin_bindings"
-}
-
-func (PluginConfig) TableName() string {
-	return "plugin_configs"
 }
 
 func (PluginEventLog) TableName() string {

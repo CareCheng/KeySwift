@@ -64,28 +64,38 @@ type Product struct {
 
 // Order 订单模型
 type Order struct {
-	ID            uint           `gorm:"primaryKey" json:"id"`
-	OrderNo       string         `gorm:"type:varchar(64);uniqueIndex" json:"order_no"`
-	PaymentNo     string         `gorm:"type:varchar(100)" json:"payment_no"` // 支付订单号
-	UserID        uint           `gorm:"index" json:"user_id"`
-	Username      string         `gorm:"type:varchar(100)" json:"username"`
-	ProductID     uint           `json:"product_id"`
-	ProductName   string         `gorm:"type:varchar(200)" json:"product_name"`
-	Quantity      int            `gorm:"default:1" json:"quantity"`    // 购买数量
-	OriginalPrice float64        `json:"original_price"`               // 原价（锁定商品价格，单价*数量）
-	Price         float64        `json:"price"`                        // 实际应付金额
-	PaidAmount    float64        `gorm:"default:0" json:"paid_amount"` // 实际支付金额（用于验证）
-	Duration      int            `json:"duration"`
-	DurationUnit  string         `gorm:"type:varchar(20)" json:"duration_unit"`
-	Status        int            `gorm:"default:0" json:"status"` // 0:待支付 1:已支付 2:已完成 3:已取消 4:已退款
-	PaymentMethod string         `gorm:"type:varchar(50)" json:"payment_method"`
-	PaymentTime   *time.Time     `json:"payment_time"`
-	KamiCode      string         `gorm:"type:text" json:"kami_code"` // 生成的卡密（多个用换行分隔）
-	Remark        string         `gorm:"type:text" json:"remark"`
-	ClientIP      string         `gorm:"type:varchar(50)" json:"client_ip"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
+	ID                 uint           `gorm:"primaryKey" json:"id"`
+	OrderNo            string         `gorm:"type:varchar(64);uniqueIndex" json:"order_no"`
+	PaymentNo          string         `gorm:"type:varchar(100)" json:"payment_no"` // 支付订单号
+	BuyerSubjectID     string         `gorm:"type:varchar(120);index" json:"buyer_subject_id"`
+	UserID             uint           `gorm:"index" json:"user_id"`
+	Username           string         `gorm:"type:varchar(100)" json:"username"`
+	ProductID          uint           `json:"product_id"`
+	ProductName        string         `gorm:"type:varchar(200)" json:"product_name"`
+	Quantity           int            `gorm:"default:1" json:"quantity"`    // 购买数量
+	OriginalPrice      float64        `json:"original_price"`               // 原价（锁定商品价格，单价*数量）
+	Price              float64        `json:"price"`                        // 实际应付金额
+	PaidAmount         float64        `gorm:"default:0" json:"paid_amount"` // 实际支付金额（用于验证）
+	AmountTotalCents   int64          `gorm:"default:0" json:"amount_total_cents"`
+	AmountPayableCents int64          `gorm:"default:0" json:"amount_payable_cents"`
+	AmountPaidCents    int64          `gorm:"default:0" json:"amount_paid_cents"`
+	Currency           string         `gorm:"type:varchar(20);default:CNY" json:"currency"`
+	Duration           int            `json:"duration"`
+	DurationUnit       string         `gorm:"type:varchar(20)" json:"duration_unit"`
+	Status             int            `gorm:"default:0" json:"status"` // 0:待支付 1:已支付 2:已完成 3:已取消 4:已退款
+	OrderStatus        string         `gorm:"type:varchar(50);default:pending_payment" json:"order_status"`
+	PaymentStatus      string         `gorm:"type:varchar(50);default:unpaid" json:"payment_status"`
+	DeliveryStatus     string         `gorm:"type:varchar(50);default:unfulfilled" json:"delivery_status"`
+	PaymentMethod      string         `gorm:"type:varchar(50)" json:"payment_method"`
+	PaymentTime        *time.Time     `json:"payment_time"`
+	KamiCode           string         `gorm:"type:text" json:"kami_code"` // 生成的卡密（多个用换行分隔）
+	IdempotencyKey     string         `gorm:"type:varchar(180);index" json:"idempotency_key"`
+	Version            int            `gorm:"default:1" json:"version"`
+	Remark             string         `gorm:"type:text" json:"remark"`
+	ClientIP           string         `gorm:"type:varchar(50)" json:"client_ip"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+	DeletedAt          gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // OrderStatus 订单状态常量
@@ -136,28 +146,33 @@ type EmailConfigDB struct {
 
 // SystemConfigDB 系统配置（数据库存储）
 type SystemConfigDB struct {
-	ID                           uint      `gorm:"primaryKey" json:"id"`
-	SystemTitle                  string    `gorm:"type:varchar(200)" json:"system_title"`                // 系统标题
-	AdminSuffix                  string    `gorm:"type:varchar(100)" json:"admin_suffix"`                // 管理后台路径后缀
-	EnableLogin                  bool      `gorm:"default:true" json:"enable_login"`                     // 是否启用后台登录验证
-	EnableCaptcha                bool      `gorm:"default:true" json:"enable_captcha"`                   // 后台登录是否要求图形验证码
-	AdminUsername                string    `gorm:"type:varchar(100)" json:"admin_username"`              // 管理员用户名
-	AdminPassword                string    `gorm:"type:varchar(255)" json:"admin_password"`              // 管理员密码
-	AdminPasswordInitialized     bool      `gorm:"default:false" json:"admin_password_initialized"`      // 初始管理员密码是否已由用户完成设置
-	Enable2FA                    bool      `gorm:"default:false" json:"enable_2fa"`                      // 后台是否启用两步验证
-	TOTPSecret                   string    `gorm:"type:varchar(100)" json:"totp_secret"`                 // 后台TOTP密钥
-	EnableSessionTimeout         bool      `gorm:"default:true" json:"enable_session_timeout"`           // 后台是否启用会话超时
-	SessionTimeout               int       `gorm:"default:60" json:"session_timeout"`                    // 后台会话超时分钟数
-	UserAllowRegister            bool      `gorm:"default:true" json:"user_allow_register"`              // 是否允许用户注册
-	UserEnableCaptcha            bool      `gorm:"default:true" json:"user_enable_captcha"`              // 用户登录/注册是否要求图形验证码
-	UserEnable2FA                bool      `gorm:"default:true" json:"user_enable_2fa"`                  // 是否允许用户使用两步验证
-	UserRequireEmailVerification bool      `gorm:"default:false" json:"user_require_email_verification"` // 注册是否要求邮箱验证码
-	UserEnableSessionTimeout     bool      `gorm:"default:true" json:"user_enable_session_timeout"`      // 用户侧是否启用会话超时
-	UserSessionTimeout           int       `gorm:"default:120" json:"user_session_timeout"`              // 用户侧会话超时分钟数
-	EnableWhitelist              bool      `gorm:"default:false" json:"enable_whitelist"`                // 是否启用IP白名单
-	IPWhitelist                  string    `gorm:"type:text" json:"ip_whitelist"`                        // IP白名单（JSON数组格式）
-	CreatedAt                    time.Time `json:"created_at"`
-	UpdatedAt                    time.Time `json:"updated_at"`
+	ID                                       uint      `gorm:"primaryKey" json:"id"`
+	SystemTitle                              string    `gorm:"type:varchar(200)" json:"system_title"`                                                                  // 系统标题
+	AdminSuffix                              string    `gorm:"type:varchar(100)" json:"admin_suffix"`                                                                  // 管理后台路径后缀
+	EnableLogin                              bool      `gorm:"default:true" json:"enable_login"`                                                                       // 是否启用后台登录验证
+	AdminHumanVerificationEnabled            bool      `gorm:"default:false" json:"admin_human_verification_enabled"`                                                  // 后台登录是否启用人机验证
+	AdminHumanVerificationProviderID         string    `gorm:"type:varchar(120);default:'keyswift.image_captcha'" json:"admin_human_verification_provider_id"`         // 后台登录人机验证 provider
+	AdminUsername                            string    `gorm:"type:varchar(100)" json:"admin_username"`                                                                // 管理员用户名
+	AdminPassword                            string    `gorm:"type:varchar(255)" json:"admin_password"`                                                                // 管理员密码
+	AdminPasswordInitialized                 bool      `gorm:"default:false" json:"admin_password_initialized"`                                                        // 初始管理员密码是否已由用户完成设置
+	Enable2FA                                bool      `gorm:"default:false" json:"enable_2fa"`                                                                        // 后台是否启用两步验证
+	TOTPSecret                               string    `gorm:"type:varchar(100)" json:"totp_secret"`                                                                   // 后台TOTP密钥
+	EnableSessionTimeout                     bool      `gorm:"default:true" json:"enable_session_timeout"`                                                             // 后台是否启用会话超时
+	SessionTimeout                           int       `gorm:"default:60" json:"session_timeout"`                                                                      // 后台会话超时分钟数
+	UserAllowRegister                        bool      `gorm:"default:true" json:"user_allow_register"`                                                                // 是否允许用户注册
+	UserLoginHumanVerificationEnabled        bool      `gorm:"default:false" json:"user_login_human_verification_enabled"`                                             // 用户登录是否启用人机验证
+	UserLoginHumanVerificationProviderID     string    `gorm:"type:varchar(120);default:'keyswift.image_captcha'" json:"user_login_human_verification_provider_id"`    // 用户登录人机验证 provider
+	UserRegisterHumanVerificationEnabled     bool      `gorm:"default:false" json:"user_register_human_verification_enabled"`                                          // 用户注册是否启用人机验证
+	UserRegisterHumanVerificationProviderID  string    `gorm:"type:varchar(120);default:'keyswift.image_captcha'" json:"user_register_human_verification_provider_id"` // 用户注册人机验证 provider
+	UserRegisterHumanVerificationFollowLogin bool      `gorm:"default:true" json:"user_register_human_verification_follow_login"`                                      // 用户注册是否跟随用户登录人机验证配置
+	UserEnable2FA                            bool      `gorm:"default:true" json:"user_enable_2fa"`                                                                    // 是否允许用户使用两步验证
+	UserRequireEmailVerification             bool      `gorm:"default:false" json:"user_require_email_verification"`                                                   // 注册是否要求邮箱验证码
+	UserEnableSessionTimeout                 bool      `gorm:"default:true" json:"user_enable_session_timeout"`                                                        // 用户侧是否启用会话超时
+	UserSessionTimeout                       int       `gorm:"default:120" json:"user_session_timeout"`                                                                // 用户侧会话超时分钟数
+	EnableWhitelist                          bool      `gorm:"default:false" json:"enable_whitelist"`                                                                  // 是否启用IP白名单
+	IPWhitelist                              string    `gorm:"type:text" json:"ip_whitelist"`                                                                          // IP白名单（JSON数组格式）
+	CreatedAt                                time.Time `json:"created_at"`
+	UpdatedAt                                time.Time `json:"updated_at"`
 }
 
 // LoginAttempt 登录尝试记录（用于登录失败锁定）

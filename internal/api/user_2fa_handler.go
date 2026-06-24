@@ -65,7 +65,7 @@ func Enable2FA(c *gin.Context) {
 
 	// 记录操作日志
 	if LogSvc != nil {
-		LogSvc.LogUserActionSimple(userID, username, "enable_2fa", "user", "", nil, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogUserActionSimple(userID, username, "enable_2fa", "user", "", nil, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "两步验证已启用"})
@@ -339,7 +339,7 @@ func Verify2FALogin(c *gin.Context) {
 			return
 		}
 		sessionDuration, cookieMaxAge := userSessionPolicy(false)
-		sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
+		sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, GetClientIP(c), c.GetHeader("User-Agent"), sessionDuration)
 		if err != nil {
 			c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 			return

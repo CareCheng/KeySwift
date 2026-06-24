@@ -39,27 +39,32 @@ type DBConfig struct {
 
 // ServerConfig 服务器配置（运行时从主数据库加载）
 type ServerConfig struct {
-	Port                         int    `json:"port"`
-	UseHTTPS                     bool   `json:"use_https"`
-	CertFile                     string `json:"cert_file"`
-	KeyFile                      string `json:"key_file"`
-	AdminUsername                string `json:"admin_username"`
-	AdminPassword                string `json:"admin_password"`
-	AdminPasswordInitialized     bool   `json:"admin_password_initialized"`
-	AdminSuffix                  string `json:"admin_suffix"`
-	EnableLogin                  bool   `json:"enable_login"`
-	EnableCaptcha                bool   `json:"enable_captcha"`
-	Enable2FA                    bool   `json:"enable_2fa"`
-	TOTPSecret                   string `json:"totp_secret"`
-	EnableSessionTimeout         bool   `json:"enable_session_timeout"`
-	SessionTimeout               int    `json:"session_timeout"`
-	UserAllowRegister            bool   `json:"user_allow_register"`
-	UserEnableCaptcha            bool   `json:"user_enable_captcha"`
-	UserEnable2FA                bool   `json:"user_enable_2fa"`
-	UserRequireEmailVerification bool   `json:"user_require_email_verification"`
-	UserEnableSessionTimeout     bool   `json:"user_enable_session_timeout"`
-	UserSessionTimeout           int    `json:"user_session_timeout"`
-	SystemTitle                  string `json:"system_title"`
+	Port                                     int    `json:"port"`
+	UseHTTPS                                 bool   `json:"use_https"`
+	CertFile                                 string `json:"cert_file"`
+	KeyFile                                  string `json:"key_file"`
+	AdminUsername                            string `json:"admin_username"`
+	AdminPassword                            string `json:"admin_password"`
+	AdminPasswordInitialized                 bool   `json:"admin_password_initialized"`
+	AdminSuffix                              string `json:"admin_suffix"`
+	EnableLogin                              bool   `json:"enable_login"`
+	AdminHumanVerificationEnabled            bool   `json:"admin_human_verification_enabled"`
+	AdminHumanVerificationProviderID         string `json:"admin_human_verification_provider_id"`
+	Enable2FA                                bool   `json:"enable_2fa"`
+	TOTPSecret                               string `json:"totp_secret"`
+	EnableSessionTimeout                     bool   `json:"enable_session_timeout"`
+	SessionTimeout                           int    `json:"session_timeout"`
+	UserAllowRegister                        bool   `json:"user_allow_register"`
+	UserLoginHumanVerificationEnabled        bool   `json:"user_login_human_verification_enabled"`
+	UserLoginHumanVerificationProviderID     string `json:"user_login_human_verification_provider_id"`
+	UserRegisterHumanVerificationEnabled     bool   `json:"user_register_human_verification_enabled"`
+	UserRegisterHumanVerificationProviderID  string `json:"user_register_human_verification_provider_id"`
+	UserRegisterHumanVerificationFollowLogin bool   `json:"user_register_human_verification_follow_login"`
+	UserEnable2FA                            bool   `json:"user_enable_2fa"`
+	UserRequireEmailVerification             bool   `json:"user_require_email_verification"`
+	UserEnableSessionTimeout                 bool   `json:"user_enable_session_timeout"`
+	UserSessionTimeout                       int    `json:"user_session_timeout"`
+	SystemTitle                              string `json:"system_title"`
 }
 
 var (
@@ -87,23 +92,30 @@ func (c *Config) LoadAll() error {
 
 	// 设置默认的服务器配置（实际值从数据库加载）
 	c.ServerConfig = ServerConfig{
-		Port:                         8080,
-		AdminUsername:                "admin",
-		AdminPassword:                "admin123",
-		AdminPasswordInitialized:     false,
-		AdminSuffix:                  "manage",
-		EnableLogin:                  true,
-		EnableCaptcha:                true,
-		Enable2FA:                    false,
-		EnableSessionTimeout:         true,
-		SessionTimeout:               60,
-		UserAllowRegister:            true,
-		UserEnableCaptcha:            true,
-		UserEnable2FA:                true,
-		UserRequireEmailVerification: false,
-		UserEnableSessionTimeout:     true,
-		UserSessionTimeout:           120,
-		SystemTitle:                  "卡密购买系统",
+		Port:                                     8080,
+		AdminUsername:                            "admin",
+		AdminPassword:                            "admin123",
+		AdminPasswordInitialized:                 false,
+		AdminSuffix:                              "manage",
+		EnableLogin:                              true,
+		AdminHumanVerificationEnabled:            false,
+		// 默认人机验证 provider，须与 service.DefaultHumanVerificationProviderID 保持一致；
+		// config 包不依赖 service 包，故此处保留字面量并以此注释标注同步约束。
+		AdminHumanVerificationProviderID:         "keyswift.image_captcha",
+		Enable2FA:                                false,
+		EnableSessionTimeout:                     true,
+		SessionTimeout:                           60,
+		UserAllowRegister:                        true,
+		UserLoginHumanVerificationEnabled:        false,
+		UserLoginHumanVerificationProviderID:     "keyswift.image_captcha",
+		UserRegisterHumanVerificationEnabled:     false,
+		UserRegisterHumanVerificationProviderID:  "keyswift.image_captcha",
+		UserRegisterHumanVerificationFollowLogin: true,
+		UserEnable2FA:                            true,
+		UserRequireEmailVerification:             false,
+		UserEnableSessionTimeout:                 true,
+		UserSessionTimeout:                       120,
+		SystemTitle:                              "卡密购买系统",
 	}
 
 	// 设置默认的邮箱配置（实际值从数据库加载）

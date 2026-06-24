@@ -182,7 +182,7 @@ export const PAGE_PERMISSIONS: Record<string, string[]> = {
   users: ['user:view'],
   balance: ['balance:view'],
   access: ['role:view', 'admin:view'],
-  config: ['settings:view', 'settings:payment', 'settings:email', 'settings:database'],
+  config: ['settings:view', 'settings:security', 'settings:payment', 'settings:email', 'settings:database'],
   plugins: ['plugin:view'],
 }
 

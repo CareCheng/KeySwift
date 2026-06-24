@@ -16,6 +16,7 @@ var (
 	pluginDBNamespacePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{2,119}$`)
 	pluginDBTablePattern     = regexp.MustCompile(`^plugin_[a-z0-9_]+_[a-z][a-z0-9_]*$`)
 	pluginDBColumnPattern    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,119}$`)
+	pluginCategoryPattern    = regexp.MustCompile(`^[a-z][a-z0-9-]{1,63}$`)
 )
 
 // DiscoveryResult 是一次插件发现的结果。
@@ -59,11 +60,45 @@ func DiscoverManifests(ctx context.Context, options DiscoverOptions) ([]Discover
 			continue
 		}
 
-		pluginDir := filepath.Join(options.PluginRoot, entry.Name())
-		results = append(results, discoverPluginDir(pluginDir)...)
+		entryRoot := filepath.Join(options.PluginRoot, entry.Name())
+		for _, pluginDir := range pluginDiscoveryRoots(entryRoot) {
+			results = append(results, discoverPluginDir(pluginDir)...)
+		}
 	}
 
 	return results, nil
+}
+
+func pluginDiscoveryRoots(entryRoot string) []string {
+	if hasReleasesDir(entryRoot) {
+		return []string{entryRoot}
+	}
+
+	// 兼容用户把 .ksplugin.zip 解压成外层包目录的场景：
+	// plugins/<package-name>.ksplugin/<plugin-id>/releases/<version>/manifest.json
+	entries, err := os.ReadDir(entryRoot)
+	if err != nil {
+		return []string{entryRoot}
+	}
+	pluginDirs := make([]string, 0)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(entryRoot, entry.Name())
+		if hasReleasesDir(candidate) {
+			pluginDirs = append(pluginDirs, candidate)
+		}
+	}
+	if len(pluginDirs) > 0 {
+		return pluginDirs
+	}
+	return []string{entryRoot}
+}
+
+func hasReleasesDir(pluginDir string) bool {
+	info, err := os.Stat(filepath.Join(pluginDir, "releases"))
+	return err == nil && info.IsDir()
 }
 
 func discoverPluginDir(pluginDir string) []DiscoveryResult {
@@ -116,6 +151,7 @@ func readManifest(releaseRoot string) DiscoveryResult {
 	result.PluginID = manifest.ID
 	result.Version = manifest.Version
 	result.Errors = append(result.Errors, ValidateManifest(manifest, releaseRoot)...)
+	result.Warnings = append(result.Warnings, inspectIdentityCategories(manifest)...)
 	result.Warnings = append(result.Warnings, inspectOptionalFiles(releaseRoot, manifest)...)
 	return result
 }
@@ -237,6 +273,27 @@ func inspectOptionalFiles(releaseRoot string, manifest Manifest) []string {
 	if manifest.Backend.SettingsRef != "" {
 		if _, err := os.Stat(filepath.Join(releaseRoot, manifest.Backend.SettingsRef)); err != nil {
 			warnings = append(warnings, "已声明配置 schema 但未找到对应文件")
+		}
+	}
+	return warnings
+}
+
+func inspectIdentityCategories(manifest Manifest) []string {
+	warnings := make([]string, 0)
+	seen := map[string]bool{}
+	for _, rawCategory := range manifest.Identity.Categories {
+		category := strings.TrimSpace(rawCategory)
+		if category == "" {
+			warnings = append(warnings, "插件分类包含空值，建议移除空字符串")
+			continue
+		}
+		if seen[category] {
+			warnings = append(warnings, "插件分类重复: "+category)
+			continue
+		}
+		seen[category] = true
+		if !pluginCategoryPattern.MatchString(category) {
+			warnings = append(warnings, "插件分类不符合 slug 规范: "+category)
 		}
 	}
 	return warnings

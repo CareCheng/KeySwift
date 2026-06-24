@@ -36,8 +36,19 @@ web/build/
 web/coverage/
 web/*.tsbuildinfo
 
+# Plugin build artifacts and frontend dependencies
+plugins/*/dist/
+plugins/*/releases/
+plugins/*/frontend/node_modules/
+plugins/*/frontend/.next/
+plugins/*/frontend/out/
+plugins/*/frontend/dist/
+plugins/*/frontend/build/
+plugins/*/frontend/coverage/
+
 # AI / local context
 CLAUDE.md
+AGENTS.md
 .claude/
 Docs/
 Source/

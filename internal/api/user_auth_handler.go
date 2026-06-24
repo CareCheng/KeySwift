@@ -90,14 +90,13 @@ func UserRegister(c *gin.Context) {
 	}
 
 	var req struct {
-		Username        string `json:"username" binding:"required"`
-		Email           string `json:"email"`
-		EmailCode       string `json:"email_code"`
-		Password        string `json:"password" binding:"required"`
-		ConfirmPassword string `json:"confirm_password" binding:"required"`
-		Phone           string `json:"phone"`
-		CaptchaID       string `json:"captcha_id"`
-		CaptchaCode     string `json:"captcha_code"`
+		Username          string                            `json:"username" binding:"required"`
+		Email             string                            `json:"email"`
+		EmailCode         string                            `json:"email_code"`
+		Password          string                            `json:"password" binding:"required"`
+		ConfirmPassword   string                            `json:"confirm_password" binding:"required"`
+		Phone             string                            `json:"phone"`
+		HumanVerification *service.HumanVerificationPayload `json:"human_verification"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -109,16 +108,8 @@ func UserRegister(c *gin.Context) {
 		return
 	}
 
-	// 按用户侧配置决定是否强制校验图形验证码。
-	if serverCfg.UserEnableCaptcha {
-		if req.CaptchaID == "" || req.CaptchaCode == "" {
-			c.JSON(400, gin.H{"success": false, "error": "请输入图形验证码"})
-			return
-		}
-		if !VerifyCaptchaCode(req.CaptchaID, req.CaptchaCode) {
-			c.JSON(400, gin.H{"success": false, "error": "图形验证码错误"})
-			return
-		}
+	if !verifyHumanVerificationForRequest(c, service.HumanScopeUserRegister, req.HumanVerification) {
+		return
 	}
 
 	requireEmailVerification := serverCfg.UserRequireEmailVerification && config.GlobalConfig.EmailConfig.Enabled
@@ -164,7 +155,7 @@ func UserRegister(c *gin.Context) {
 		return
 	}
 	sessionDuration, cookieMaxAge := userSessionPolicy(false)
-	sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
+	sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, GetClientIP(c), c.GetHeader("User-Agent"), sessionDuration)
 	if err != nil {
 		c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 		return
@@ -174,7 +165,7 @@ func UserRegister(c *gin.Context) {
 	csrfToken := SetCSRFCookie(c, sessionID)
 
 	if LogSvc != nil {
-		LogSvc.LogUserActionSimple(user.ID, user.Username, "register", "user", "", nil, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogUserActionSimple(user.ID, user.Username, "register", "user", "", nil, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{
@@ -204,7 +195,7 @@ func UserLogin(c *gin.Context) {
 		return
 	}
 
-	clientIP := c.ClientIP()
+	clientIP := GetClientIP(c)
 
 	// 检查IP是否被锁定
 	if SecuritySvc != nil {
@@ -220,13 +211,12 @@ func UserLogin(c *gin.Context) {
 	}
 
 	var req struct {
-		Username    string `json:"username" binding:"required"`
-		Password    string `json:"password" binding:"required"`
-		CaptchaID   string `json:"captcha_id"`
-		CaptchaCode string `json:"captcha_code"`
-		TOTPCode    string `json:"totp_code"`
-		EmailCode   string `json:"email_code"`
-		Remember    bool   `json:"remember"`
+		Username          string                            `json:"username" binding:"required"`
+		Password          string                            `json:"password" binding:"required"`
+		HumanVerification *service.HumanVerificationPayload `json:"human_verification"`
+		TOTPCode          string                            `json:"totp_code"`
+		EmailCode         string                            `json:"email_code"`
+		Remember          bool                              `json:"remember"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -234,19 +224,11 @@ func UserLogin(c *gin.Context) {
 		return
 	}
 
-	// 按用户侧配置决定是否强制校验图形验证码。
-	if config.GlobalConfig.ServerConfig.UserEnableCaptcha {
-		if req.CaptchaID == "" || req.CaptchaCode == "" {
-			c.JSON(400, gin.H{"success": false, "error": "请输入验证码"})
-			return
-		}
-		if !VerifyCaptchaCode(req.CaptchaID, req.CaptchaCode) {
-			c.JSON(400, gin.H{"success": false, "error": "验证码错误"})
-			return
-		}
+	if !verifyHumanVerificationForRequest(c, service.HumanScopeUserLogin, req.HumanVerification) {
+		return
 	}
 
-	user, err := UserSvc.Login(req.Username, req.Password, c.ClientIP())
+	user, err := UserSvc.Login(req.Username, req.Password, GetClientIP(c))
 	if err != nil {
 		// 记录登录失败
 		if SecuritySvc != nil {
@@ -309,7 +291,7 @@ func UserLogin(c *gin.Context) {
 		return
 	}
 	sessionDuration, cookieMaxAge := userSessionPolicy(req.Remember)
-	sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
+	sessionID, err := SessionSvc.CreateUserSessionWithDuration(user.ID, user.Username, GetClientIP(c), c.GetHeader("User-Agent"), sessionDuration)
 	if err != nil {
 		c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 		return
@@ -338,6 +320,6 @@ func UserLogout(c *gin.Context) {
 	if sessionID != "" && SessionSvc != nil {
 		SessionSvc.DeleteUserSession(sessionID)
 	}
-	c.SetCookie("user_session", "", -1, "/", "", false, true)
+	clearConfiguredCookie(c, "user_session", true)
 	c.JSON(200, gin.H{"success": true, "message": "已退出登录"})
 }

@@ -12,6 +12,7 @@ import (
 // RegisterRoutes 注册所有路由
 func RegisterRoutes(r *gin.Engine, cfg *config.Config) {
 	// 全局安全中间件
+	r.Use(ReverseProxyCORSMiddleware())
 	r.Use(SecurityHeadersMiddleware())
 	r.Use(IPBlacklistMiddleware())
 	r.Use(RateLimitMiddleware())
@@ -26,6 +27,8 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config) {
 	// CSRF令牌API
 	r.GET("/api/csrf-token", GetCSRFToken)
 	r.GET("/api/auth/config", PublicAuthConfig)
+	r.POST("/api/human-verification/challenge", HumanVerificationChallenge)
+	r.GET("/api/plugins/:plugin_id/:version/frontend/*filepath", PluginFrontendAsset)
 
 	// 注册各模块路由
 	registerUserRoutes(r)
@@ -121,9 +124,6 @@ func registerProductRoutes(r *gin.Engine) {
 	r.GET("/health", HealthCheck)
 	r.GET("/api/health", HealthCheck)
 
-	// 验证码
-	r.GET("/api/captcha", CaptchaHandler)
-	r.POST("/api/captcha/verify", VerifyCaptcha)
 }
 
 // registerAdminRoutes 注册管理后台路由
@@ -213,6 +213,7 @@ func registerAdminOrderRoutes(adminAPI *gin.RouterGroup) {
 	adminAPI.GET("/orders", PermissionRequired("order:view"), AdminGetOrders)
 	adminAPI.GET("/orders/search", PermissionRequired("order:view"), AdminSearchOrders)
 	adminAPI.GET("/order/:id", PermissionRequired("order:view"), AdminGetOrder)
+	adminAPI.POST("/orders/plugin-material", PermissionRequired("order:edit"), AdminCreatePluginMaterialOrder)
 }
 
 // registerAdminUserRoutes 注册管理后台用户相关路由
@@ -235,6 +236,10 @@ func registerAdminSettingsRoutes(adminAPI *gin.RouterGroup) {
 	adminAPI.GET("/settings", PermissionRequired("settings:view"), AdminGetSettings)
 	adminAPI.POST("/settings", PermissionRequired("settings:edit"), AdminSaveSettings)
 	adminAPI.POST("/settings/security", PermissionRequired("settings:security"), AdminSaveSecuritySettings)
+	adminAPI.GET("/settings/reverse-proxy", PermissionRequired("settings:view"), AdminGetReverseProxyConfig)
+	adminAPI.POST("/settings/reverse-proxy", PermissionRequired("settings:security"), AdminSaveReverseProxyConfig)
+	adminAPI.GET("/settings/reverse-proxy/diagnostics", PermissionRequired("settings:view"), AdminReverseProxyDiagnostics)
+	adminAPI.GET("/human-verification/providers", PermissionRequired("settings:security"), AdminListHumanVerificationProviders)
 
 	// 数据库配置
 	adminAPI.GET("/db/config", PermissionRequired("settings:database"), AdminGetDBConfig)
@@ -276,6 +281,8 @@ func registerAdminSystemRoutes(adminAPI *gin.RouterGroup) {
 	adminAPI.PUT("/role/:id", PermissionRequired("role:edit"), AdminUpdateRole)
 	adminAPI.DELETE("/role/:id", PermissionRequired("role:delete"), AdminDeleteRole)
 	adminAPI.GET("/permissions", PermissionRequired("role:view"), AdminGetPermissions)
+	adminAPI.GET("/data-scopes", PermissionRequired("role:view"), AdminGetSubjectDataScopes)
+	adminAPI.POST("/data-scopes", PermissionRequired("role:edit"), AdminGrantSubjectDataScope)
 	adminAPI.GET("/admins", PermissionRequired("admin:view"), AdminGetAdmins)
 	adminAPI.GET("/admin/:id", PermissionRequired("admin:view"), AdminGetAdmin)
 	adminAPI.POST("/admin", PermissionRequired("admin:create"), AdminCreateAdmin)
@@ -289,6 +296,7 @@ func registerAdminSystemRoutes(adminAPI *gin.RouterGroup) {
 func registerAdminPluginRoutes(adminAPI *gin.RouterGroup) {
 	adminAPI.GET("/plugins/summary", PermissionRequired("plugin:view"), AdminGetPluginSummary)
 	adminAPI.GET("/plugins", PermissionRequired("plugin:view"), AdminListPlugins)
+	adminAPI.POST("/plugins/install", PermissionRequired("plugin:manage"), AdminInstallPluginPackage)
 	adminAPI.POST("/plugins/refresh", PermissionRequired("plugin:manage"), AdminRefreshPlugins)
 	adminAPI.GET("/plugins/frontend", AdminGetPluginFrontendContribution)
 	adminAPI.GET("/plugins/permissions", PermissionRequired("plugin:view"), AdminGetPluginPermissions)
@@ -296,10 +304,21 @@ func registerAdminPluginRoutes(adminAPI *gin.RouterGroup) {
 	adminAPI.GET("/plugin/:id", PermissionRequired("plugin:view"), AdminGetPluginDetail)
 	adminAPI.GET("/plugin/:id/bindings", PermissionRequired("plugin:view"), AdminGetPluginBindings)
 	adminAPI.GET("/plugin/:id/migrations", PermissionRequired("plugin:view"), AdminGetPluginMigrations)
-	adminAPI.GET("/plugin/:id/configs", PermissionRequired("plugin:view"), AdminGetPluginConfigs)
+	adminAPI.GET("/plugin/:id/config-values", PermissionRequired("plugin:view"), AdminGetPluginConfigValues)
+	adminAPI.POST("/plugin/:id/config-values", PermissionRequired("plugin:manage"), AdminSavePluginConfigValue)
 	adminAPI.GET("/plugin/:id/database", PermissionRequired("plugin:view"), AdminGetPluginDatabaseTables)
+	adminAPI.GET("/plugin/:id/runtime-records", PermissionRequired("plugin:view"), AdminGetPluginRuntimeRecords)
+	adminAPI.GET("/plugin/:id/permission-definitions", PermissionRequired("plugin:view"), AdminGetPluginPermissionDefinitions)
+	adminAPI.POST("/plugin/:id/runtime/start", PermissionRequired("plugin:manage"), AdminStartPluginRuntime)
+	adminAPI.POST("/plugin/:id/runtime/stop", PermissionRequired("plugin:manage"), AdminStopPluginRuntime)
+	adminAPI.POST("/plugin/:id/runtime/kill", PermissionRequired("plugin:manage"), AdminKillPluginRuntime)
+	adminAPI.POST("/plugin/:id/runtime/restart", PermissionRequired("plugin:manage"), AdminRestartPluginRuntime)
+	adminAPI.POST("/plugin/:id/runtime/ready", PermissionRequired("plugin:manage"), AdminMarkPluginReady)
+	adminAPI.POST("/plugin/:id/invoke", PermissionRequired("plugin:manage"), AdminInvokePluginGateway)
+	adminAPI.POST("/plugin/:id/trust/approve", PermissionRequired("plugin:manage"), AdminApprovePluginTrust)
 	adminAPI.POST("/plugin/:id/enable", PermissionRequired("plugin:manage"), AdminEnablePlugin)
 	adminAPI.POST("/plugin/:id/disable", PermissionRequired("plugin:manage"), AdminDisablePlugin)
+	adminAPI.POST("/plugin/:id/uninstall", PermissionRequired("plugin:manage"), AdminUninstallPlugin)
 }
 
 // registerSPARoutes 注册 SPA 前端页面路由

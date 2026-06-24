@@ -1,11 +1,14 @@
 package service
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +19,8 @@ import (
 	"user-frontend/internal/model"
 	pluginapi "user-frontend/internal/plugin"
 	"user-frontend/internal/repository"
+
+	"gorm.io/gorm"
 )
 
 // PluginService 管理宿主插件发现、注册表和运行时能力快照。
@@ -23,6 +28,7 @@ type PluginService struct {
 	repo       *repository.Repository
 	pluginRoot string
 	registry   *pluginapi.MemoryRegistry
+	governance *GovernanceService
 }
 
 // PluginDatabaseSnapshot 是后台读取插件数据库治理状态的完整快照。
@@ -33,6 +39,27 @@ type PluginDatabaseSnapshot struct {
 	Indexes     []model.PluginDatabaseIndex      `json:"indexes"`
 	Relations   []model.PluginDatabaseRelation   `json:"relations"`
 	Operations  []model.PluginDatabaseOperation  `json:"operations"`
+}
+
+// PluginInstallResult 描述一次后台安装插件包后的刷新结果。
+type PluginInstallResult struct {
+	InstalledRoots []string                    `json:"installed_roots"`
+	Results        []pluginapi.DiscoveryResult `json:"results"`
+}
+
+// PluginUninstallOptions 描述插件卸载时的用户选择。
+type PluginUninstallOptions struct {
+	DeleteConfig  bool `json:"delete_config"`
+	DeleteDatabase bool `json:"delete_database"`
+}
+
+// PluginUninstallResult 描述插件卸载执行结果。
+type PluginUninstallResult struct {
+	PluginID         string `json:"plugin_id"`
+	RemovedDirectory  bool   `json:"removed_directory"`
+	RemovedConfig     bool   `json:"removed_config"`
+	RemovedDatabase   bool   `json:"removed_database"`
+	RemovedState      bool   `json:"removed_state"`
 }
 
 // NewPluginService 创建插件服务。
@@ -54,6 +81,39 @@ func (s *PluginService) PluginRoot() string {
 	return s.pluginRoot
 }
 
+// InstallRoot 返回插件实际安装目录；优先使用最近一次扫描登记的目录。
+func (s *PluginService) InstallRoot(pluginID string) string {
+	pluginID = strings.TrimSpace(pluginID)
+	if s == nil || pluginID == "" {
+		return ""
+	}
+	if s.repo != nil {
+		if record, err := s.repo.GetPluginRegistry(pluginID); err == nil {
+			if root := strings.TrimSpace(record.InstallRoot); root != "" {
+				if info, statErr := os.Stat(root); statErr == nil && info.IsDir() {
+					return filepath.Clean(root)
+				}
+			}
+		}
+	}
+	return filepath.Clean(filepath.Join(s.pluginRoot, pluginID))
+}
+
+// ReleaseRoot 返回插件指定版本的实际 release 目录。
+func (s *PluginService) ReleaseRoot(pluginID string, version string) string {
+	return filepath.Join(s.InstallRoot(pluginID), "releases", strings.TrimSpace(version))
+}
+
+// DataRoot 返回插件运行数据目录。
+func (s *PluginService) DataRoot(pluginID string) string {
+	return filepath.Join(s.InstallRoot(pluginID), "data")
+}
+
+// SetGovernanceService 绑定插件治理落库服务。
+func (s *PluginService) SetGovernanceService(governance *GovernanceService) {
+	s.governance = governance
+}
+
 // Refresh 扫描磁盘插件目录，注册 manifest 并同步治理表。
 func (s *PluginService) Refresh(ctx context.Context) ([]pluginapi.DiscoveryResult, error) {
 	results, err := pluginapi.DiscoverManifests(ctx, pluginapi.DiscoverOptions{PluginRoot: s.pluginRoot})
@@ -61,17 +121,31 @@ func (s *PluginService) Refresh(ctx context.Context) ([]pluginapi.DiscoveryResul
 		return nil, err
 	}
 
-	for _, result := range results {
+	for i := range results {
+		result := &results[i]
 		if len(result.Errors) > 0 || result.Manifest.ID == "" {
-			s.saveDiscoveryError(result)
+			s.saveDiscoveryError(*result)
 			continue
 		}
 
 		manifest := result.Manifest
+		configSchema, hasConfigSchema, err := s.loadConfigSchema(*result)
+		if err != nil {
+			result.Errors = append(result.Errors, err.Error())
+			s.saveDiscoveryError(*result)
+			continue
+		}
 		if err := s.registry.RegisterManifest(ctx, manifest); err != nil {
 			result.Errors = append(result.Errors, err.Error())
-			s.saveDiscoveryError(result)
+			s.saveDiscoveryError(*result)
 			continue
+		}
+		if hasConfigSchema {
+			if err := s.registry.RegisterConfigSchema(manifest.ID, configSchema); err != nil {
+				result.Errors = append(result.Errors, err.Error())
+				s.saveDiscoveryError(*result)
+				continue
+			}
 		}
 		s.registry.SetRuntime(manifest.ID, pluginapi.RuntimePlugin{
 			PluginID:                manifest.ID,
@@ -86,13 +160,223 @@ func (s *PluginService) Refresh(ctx context.Context) ([]pluginapi.DiscoveryResul
 			ConfigVersion:           1,
 			Extensions:              pluginapi.ExtensionMap{},
 		})
-		s.persistManifest(result)
+		s.persistManifest(*result)
 		s.persistBindings(manifest)
 		s.persistMigrations(manifest)
 		s.persistDatabaseDeclarations(manifest)
+		s.persistGovernanceDeclarations(*result)
 	}
 
 	return results, nil
+}
+
+func (s *PluginService) loadConfigSchema(result pluginapi.DiscoveryResult) (pluginapi.ConfigSchema, bool, error) {
+	settingsRef := strings.TrimSpace(result.Manifest.Backend.SettingsRef)
+	if settingsRef == "" {
+		return pluginapi.ConfigSchema{}, false, nil
+	}
+	cleanRef := filepath.Clean(settingsRef)
+	if filepath.IsAbs(cleanRef) || strings.HasPrefix(cleanRef, "..") {
+		return pluginapi.ConfigSchema{}, false, errors.New("插件配置 schema 路径不合法")
+	}
+	releaseRoot := filepath.Dir(result.ManifestPath)
+	content, err := os.ReadFile(filepath.Join(releaseRoot, cleanRef))
+	if err != nil {
+		return pluginapi.ConfigSchema{}, false, errors.New("无法读取插件配置 schema")
+	}
+	var schema pluginapi.ConfigSchema
+	if err := json.Unmarshal(content, &schema); err != nil {
+		return pluginapi.ConfigSchema{}, false, errors.New("插件配置 schema 解析失败")
+	}
+	if strings.TrimSpace(schema.PluginID) == "" {
+		schema.PluginID = result.Manifest.ID
+	}
+	if schema.PluginID != result.Manifest.ID {
+		return pluginapi.ConfigSchema{}, false, errors.New("插件配置 schema 的 pluginId 与 manifest 不一致")
+	}
+	if strings.TrimSpace(schema.SchemaVersion) == "" {
+		schema.SchemaVersion = pluginapi.ManifestVersion
+	}
+	if strings.TrimSpace(schema.ConfigVersion) == "" {
+		schema.ConfigVersion = result.Manifest.Version
+	}
+	return schema, true, nil
+}
+
+// InstallPackage 解压 .ksplugin.zip 安装包到标准插件目录并刷新插件注册表。
+func (s *PluginService) InstallPackage(ctx context.Context, packagePath string) (*PluginInstallResult, error) {
+	if s == nil {
+		return nil, errors.New("插件服务未初始化")
+	}
+	if strings.TrimSpace(packagePath) == "" {
+		return nil, errors.New("插件安装包路径不能为空")
+	}
+	installedRoots, err := s.extractPluginPackage(packagePath)
+	if err != nil {
+		return nil, err
+	}
+	results, err := s.Refresh(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &PluginInstallResult{InstalledRoots: installedRoots, Results: results}, nil
+}
+
+// UninstallPlugin 卸载指定插件，并按选项清理配置和独立数据表。
+func (s *PluginService) UninstallPlugin(ctx context.Context, pluginID string, options PluginUninstallOptions) (*PluginUninstallResult, error) {
+	pluginID = strings.TrimSpace(pluginID)
+	if pluginID == "" {
+		return nil, errors.New("插件ID不能为空")
+	}
+	if s == nil || s.repo == nil {
+		return nil, errors.New("插件仓储未初始化")
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	record, err := s.repo.GetPluginRegistry(pluginID)
+	if err != nil {
+		return nil, err
+	}
+
+	installRoot := strings.TrimSpace(record.InstallRoot)
+	if installRoot == "" {
+		installRoot = s.InstallRoot(pluginID)
+	}
+
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	if err := s.repo.GetDB().Transaction(func(tx *gorm.DB) error {
+		if options.DeleteDatabase {
+			if err := dropPluginDatabaseTables(tx, pluginID); err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginArtifact{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginBinding{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginMigration{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginRegistry{}).Error; err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	if s.governance != nil {
+		if err := s.governance.DeletePluginGovernanceData(pluginID); err != nil {
+			return nil, err
+		}
+		if options.DeleteConfig {
+			if err := s.governance.DeletePluginConfigData(pluginID); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	removedDirectory := false
+	if installRoot != "" {
+		rootClean := filepath.Clean(s.pluginRoot)
+		installClean := filepath.Clean(installRoot)
+		if pathWithin(rootClean, installClean) {
+			if err := os.RemoveAll(installClean); err != nil {
+				return nil, err
+			}
+			removedDirectory = true
+		}
+	}
+
+	if s.registry != nil {
+		s.registry.UnregisterPlugin(pluginID)
+	}
+
+	return &PluginUninstallResult{
+		PluginID:        pluginID,
+		RemovedDirectory: removedDirectory,
+		RemovedConfig:   options.DeleteConfig,
+		RemovedDatabase:  options.DeleteDatabase,
+		RemovedState:     true,
+	}, nil
+}
+
+func (s *PluginService) extractPluginPackage(packagePath string) ([]string, error) {
+	if err := os.MkdirAll(s.pluginRoot, 0755); err != nil {
+		return nil, err
+	}
+
+	reader, err := zip.OpenReader(packagePath)
+	if err != nil {
+		return nil, errors.New("插件安装包无法读取或格式错误")
+	}
+	defer reader.Close()
+
+	topDirs := map[string]bool{}
+	for _, file := range reader.File {
+		name := cleanZipEntryName(file.Name)
+		if name == "" {
+			continue
+		}
+		top := strings.Split(name, "/")[0]
+		if !validPluginTopDirectory(top) {
+			return nil, fmt.Errorf("插件安装包顶层目录不合法: %s", top)
+		}
+		topDirs[top] = true
+	}
+	if len(topDirs) == 0 {
+		return nil, errors.New("插件安装包为空")
+	}
+	if len(topDirs) > 1 {
+		return nil, errors.New("插件安装包只能包含一个插件顶层目录")
+	}
+
+	installedRoots := make([]string, 0, len(topDirs))
+	for top := range topDirs {
+		installedRoots = append(installedRoots, filepath.Join(s.pluginRoot, top))
+	}
+
+	rootClean := filepath.Clean(s.pluginRoot)
+	for _, file := range reader.File {
+		name := cleanZipEntryName(file.Name)
+		if name == "" {
+			continue
+		}
+		target := filepath.Join(rootClean, filepath.FromSlash(name))
+		targetClean := filepath.Clean(target)
+		if !pathWithin(rootClean, targetClean) {
+			return nil, errors.New("插件安装包包含非法路径")
+		}
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(targetClean, 0755); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(targetClean), 0755); err != nil {
+			return nil, err
+		}
+		src, err := file.Open()
+		if err != nil {
+			return nil, err
+		}
+		if err := writeZipFile(targetClean, src, file.FileInfo().Mode()); err != nil {
+			_ = src.Close()
+			return nil, err
+		}
+		if err := src.Close(); err != nil {
+			return nil, err
+		}
+	}
+
+	return installedRoots, nil
 }
 
 // Summary 返回插件平台概览。
@@ -149,6 +433,9 @@ func (s *PluginService) ListPlugins() []map[string]any {
 			"id":               manifest.ID,
 			"version":          manifest.Version,
 			"plugin_kind":      manifest.PluginKind,
+			"categories":       normalizeStringList(manifest.Identity.Categories),
+			"tags":             normalizeStringList(manifest.Identity.Tags),
+			"keywords":         normalizeStringList(manifest.Identity.Keywords),
 			"display_name":     displayName,
 			"description":      manifest.Identity.Description,
 			"author":           manifest.Identity.Author,
@@ -204,6 +491,36 @@ func (s *PluginService) Permissions() []pluginapi.PermissionDeclaration {
 	return s.registry.ListPermissions()
 }
 
+// PermissionDefinitionInputs 返回带插件归属的权限定义输入。
+func (s *PluginService) PermissionDefinitionInputs() []PermissionDefinitionInput {
+	manifests := s.registry.ListManifests()
+	inputs := make([]PermissionDefinitionInput, 0)
+	for _, manifest := range manifests {
+		for _, item := range manifest.Permissions {
+			name := item.Title
+			if name == "" {
+				name = item.Key
+			}
+			group := item.Namespace
+			if group == "" {
+				group = "插件权限"
+			}
+			inputs = append(inputs, PermissionDefinitionInput{
+				PermissionCode:     item.Key,
+				OwnerType:          PermissionOwnerPlugin,
+				OwnerPluginID:      manifest.ID,
+				RiskLevel:          defaultString(item.RiskLevel, DefaultPermissionRiskLevel),
+				GroupKey:           group,
+				Name:               name,
+				Description:        item.Description,
+				DefaultGrantPolicy: defaultString(item.DefaultVisibility, DefaultGrantPolicyManual),
+				Extensions:         item.Extensions,
+			})
+		}
+	}
+	return inputs
+}
+
 // ConfigSchemas 返回配置 schema 声明。
 func (s *PluginService) ConfigSchemas() []pluginapi.ConfigSchema {
 	return s.registry.ListConfigSchemas()
@@ -242,18 +559,6 @@ func (s *PluginService) GetPluginMigrations(pluginID string) ([]model.PluginMigr
 		return nil, false
 	}
 	items, err := s.repo.ListPluginMigrations(pluginID)
-	if err != nil {
-		return nil, false
-	}
-	return items, true
-}
-
-// GetPluginConfigs 返回插件配置声明。
-func (s *PluginService) GetPluginConfigs(pluginID string) ([]model.PluginConfig, bool) {
-	if s.repo == nil {
-		return nil, false
-	}
-	items, err := s.repo.ListPluginConfigs(pluginID)
 	if err != nil {
 		return nil, false
 	}
@@ -323,6 +628,11 @@ func (s *PluginService) EnablePlugin(pluginID string) error {
 	record, err := s.repo.GetPluginRegistry(pluginID)
 	if err != nil {
 		return err
+	}
+	if s.governance != nil {
+		if err := s.governance.AssertPluginTrusted(record.PluginID, record.CurrentVersion); err != nil {
+			return err
+		}
 	}
 	now := time.Now()
 	record.Enabled = true
@@ -656,6 +966,29 @@ func (s *PluginService) persistDatabaseDeclarations(manifest pluginapi.Manifest)
 	}
 }
 
+func (s *PluginService) persistGovernanceDeclarations(result pluginapi.DiscoveryResult) {
+	if s.governance == nil {
+		return
+	}
+	manifest := result.Manifest
+	_ = s.governance.RegisterPermissions(s.PermissionDefinitionInputs())
+	_ = s.governance.SyncPluginConfigSchemas(s.ConfigSchemas())
+	_ = s.governance.UpsertPluginVersion(PluginVersionInput{
+		PluginID:     manifest.ID,
+		Version:      manifest.Version,
+		ManifestHash: fileSHA256(result.ManifestPath),
+		PackageHash:  manifest.Integrity.PackageDigest,
+		InstallPath:  result.InstallRoot,
+		Status:       "installed",
+	})
+	_ = s.governance.EnsurePluginTrustRecord(
+		manifest.ID,
+		manifest.Version,
+		strings.Join(manifest.Integrity.RequiredScopes, ","),
+		manifest.Integrity.RequireApprovedFingerprint,
+	)
+}
+
 func buildInstallID(manifest pluginapi.Manifest) string {
 	return manifest.ID + ":" + manifest.Version
 }
@@ -681,6 +1014,20 @@ func firstString(items []string) string {
 	return items[0]
 }
 
+func normalizeStringList(items []string) []string {
+	values := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		value := strings.TrimSpace(item)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		values = append(values, value)
+	}
+	return values
+}
+
 func defaultString(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
@@ -697,6 +1044,97 @@ func jsonString(value any) string {
 		return ""
 	}
 	return string(data)
+}
+
+func cleanZipEntryName(name string) string {
+	name = strings.ReplaceAll(strings.TrimSpace(name), "\\", "/")
+	name = strings.TrimPrefix(name, "/")
+	cleaned := filepath.ToSlash(filepath.Clean(name))
+	if cleaned == "." || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
+		return ""
+	}
+	return cleaned
+}
+
+func validPluginTopDirectory(name string) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	if strings.ContainsAny(name, `/\:`) || strings.HasPrefix(name, ".") {
+		return false
+	}
+	if strings.HasSuffix(strings.ToLower(name), ".zip") {
+		return false
+	}
+	return true
+}
+
+func pathWithin(root, target string) bool {
+	relative, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return relative == "." || (!filepath.IsAbs(relative) && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)))
+}
+
+func dropPluginDatabaseTables(tx *gorm.DB, pluginID string) error {
+	if tx == nil {
+		return errors.New("数据库事务未初始化")
+	}
+
+	var tables []model.PluginDatabaseTable
+	if err := tx.Where("plugin_id = ?", strings.TrimSpace(pluginID)).Find(&tables).Error; err != nil {
+		return err
+	}
+
+	tableIDs := make([]uint, 0, len(tables))
+	for _, table := range tables {
+		tableIDs = append(tableIDs, table.ID)
+		name := strings.TrimSpace(table.PhysicalTableName)
+		if name == "" {
+			continue
+		}
+		if err := tx.Migrator().DropTable(name); err != nil {
+			return err
+		}
+	}
+
+	if len(tableIDs) > 0 {
+		if err := tx.Where("table_id IN ?", tableIDs).Delete(&model.PluginDatabaseRelation{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("table_id IN ?", tableIDs).Delete(&model.PluginDatabaseIndex{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("table_id IN ?", tableIDs).Delete(&model.PluginDatabaseColumn{}).Error; err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginDatabaseOperation{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginDatabaseTable{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Where("plugin_id = ?", pluginID).Delete(&model.PluginDatabaseDeclaration{}).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeZipFile(target string, src io.Reader, mode os.FileMode) error {
+	perm := mode.Perm()
+	if perm == 0 {
+		perm = 0644
+	}
+	dst, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+	_, err = io.Copy(dst, src)
+	return err
 }
 
 // DefaultPluginRoot 返回程序标准插件目录。

@@ -16,6 +16,8 @@
   --text-secondary: #cbd5e1;
   --text-muted: #64748b;
   --text-placeholder: #475569;
+  --primary-500: #667eea;
+  --primary-ring: rgba(102, 126, 234, 0.2);
   --gradient-from: #0f172a;
   --gradient-via: #581c87;
   --gradient-to: #0f172a;
@@ -39,6 +41,8 @@
   --text-secondary: #334155;
   --text-muted: #64748b;
   --text-placeholder: #94a3b8;
+  --primary-500: #667eea;
+  --primary-ring: rgba(102, 126, 234, 0.2);
   --gradient-from: #f8fafc;
   --gradient-via: #e0e7ff;
   --gradient-to: #f8fafc;

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+
 	"user-frontend/internal/config"
 	"user-frontend/internal/model"
 	"user-frontend/internal/service"
@@ -29,26 +31,32 @@ func AdminGetSettings(c *gin.Context) {
 	if serverPort <= 0 {
 		serverPort = 8080
 	}
+	sysCfg = effectiveHumanVerificationSettings(sysCfg)
 
 	c.JSON(200, gin.H{
 		"success": true,
 		"settings": gin.H{
-			"system_title":                    sysCfg.SystemTitle,
-			"admin_suffix":                    sysCfg.AdminSuffix,
-			"enable_login":                    sysCfg.EnableLogin,
-			"enable_captcha":                  sysCfg.EnableCaptcha,
-			"admin_username":                  sysCfg.AdminUsername,
-			"enable_2fa":                      sysCfg.Enable2FA,
-			"totp_secret":                     sysCfg.TOTPSecret,
-			"enable_session_timeout":          sysCfg.EnableSessionTimeout,
-			"session_timeout":                 sysCfg.SessionTimeout,
-			"user_allow_register":             sysCfg.UserAllowRegister,
-			"user_enable_captcha":             sysCfg.UserEnableCaptcha,
-			"user_enable_2fa":                 sysCfg.UserEnable2FA,
-			"user_require_email_verification": sysCfg.UserRequireEmailVerification,
-			"user_enable_session_timeout":     sysCfg.UserEnableSessionTimeout,
-			"user_session_timeout":            sysCfg.UserSessionTimeout,
-			"server_port":                     serverPort,
+			"system_title":                                  sysCfg.SystemTitle,
+			"admin_suffix":                                  sysCfg.AdminSuffix,
+			"enable_login":                                  sysCfg.EnableLogin,
+			"admin_human_verification_enabled":              sysCfg.AdminHumanVerificationEnabled,
+			"admin_human_verification_provider_id":          sysCfg.AdminHumanVerificationProviderID,
+			"admin_username":                                sysCfg.AdminUsername,
+			"enable_2fa":                                    sysCfg.Enable2FA,
+			"totp_secret":                                   sysCfg.TOTPSecret,
+			"enable_session_timeout":                        sysCfg.EnableSessionTimeout,
+			"session_timeout":                               sysCfg.SessionTimeout,
+			"user_allow_register":                           sysCfg.UserAllowRegister,
+			"user_login_human_verification_enabled":         sysCfg.UserLoginHumanVerificationEnabled,
+			"user_login_human_verification_provider_id":     sysCfg.UserLoginHumanVerificationProviderID,
+			"user_register_human_verification_enabled":      sysCfg.UserRegisterHumanVerificationEnabled,
+			"user_register_human_verification_provider_id":  sysCfg.UserRegisterHumanVerificationProviderID,
+			"user_register_human_verification_follow_login": sysCfg.UserRegisterHumanVerificationFollowLogin,
+			"user_enable_2fa":                               sysCfg.UserEnable2FA,
+			"user_require_email_verification":               sysCfg.UserRequireEmailVerification,
+			"user_enable_session_timeout":                   sysCfg.UserEnableSessionTimeout,
+			"user_session_timeout":                          sysCfg.UserSessionTimeout,
+			"server_port":                                   serverPort,
 		},
 	})
 }
@@ -75,25 +83,30 @@ func AdminSaveSettings(c *gin.Context) {
 	sysCfg, err := ConfigSvc.GetSystemConfig()
 	if err != nil || sysCfg == nil {
 		sysCfg = &service.SystemConfig{
-			SystemTitle:                  config.GlobalConfig.ServerConfig.SystemTitle,
-			AdminSuffix:                  config.GlobalConfig.ServerConfig.AdminSuffix,
-			EnableLogin:                  config.GlobalConfig.ServerConfig.EnableLogin,
-			EnableCaptcha:                config.GlobalConfig.ServerConfig.EnableCaptcha,
-			AdminUsername:                config.GlobalConfig.ServerConfig.AdminUsername,
-			AdminPassword:                config.GlobalConfig.ServerConfig.AdminPassword,
-			AdminPasswordInitialized:     config.GlobalConfig.ServerConfig.AdminPasswordInitialized,
-			Enable2FA:                    config.GlobalConfig.ServerConfig.Enable2FA,
-			TOTPSecret:                   config.GlobalConfig.ServerConfig.TOTPSecret,
-			EnableSessionTimeout:         config.GlobalConfig.ServerConfig.EnableSessionTimeout,
-			SessionTimeout:               normalizeSettingsTimeout(config.GlobalConfig.ServerConfig.SessionTimeout, 60),
-			UserAllowRegister:            config.GlobalConfig.ServerConfig.UserAllowRegister,
-			UserEnableCaptcha:            config.GlobalConfig.ServerConfig.UserEnableCaptcha,
-			UserEnable2FA:                config.GlobalConfig.ServerConfig.UserEnable2FA,
-			UserRequireEmailVerification: config.GlobalConfig.ServerConfig.UserRequireEmailVerification,
-			UserEnableSessionTimeout:     config.GlobalConfig.ServerConfig.UserEnableSessionTimeout,
-			UserSessionTimeout:           normalizeSettingsTimeout(config.GlobalConfig.ServerConfig.UserSessionTimeout, 120),
-			EnableWhitelist:              false,
-			IPWhitelist:                  []string{},
+			SystemTitle:                              config.GlobalConfig.ServerConfig.SystemTitle,
+			AdminSuffix:                              config.GlobalConfig.ServerConfig.AdminSuffix,
+			EnableLogin:                              config.GlobalConfig.ServerConfig.EnableLogin,
+			AdminHumanVerificationEnabled:            config.GlobalConfig.ServerConfig.AdminHumanVerificationEnabled,
+			AdminHumanVerificationProviderID:         config.GlobalConfig.ServerConfig.AdminHumanVerificationProviderID,
+			AdminUsername:                            config.GlobalConfig.ServerConfig.AdminUsername,
+			AdminPassword:                            config.GlobalConfig.ServerConfig.AdminPassword,
+			AdminPasswordInitialized:                 config.GlobalConfig.ServerConfig.AdminPasswordInitialized,
+			Enable2FA:                                config.GlobalConfig.ServerConfig.Enable2FA,
+			TOTPSecret:                               config.GlobalConfig.ServerConfig.TOTPSecret,
+			EnableSessionTimeout:                     config.GlobalConfig.ServerConfig.EnableSessionTimeout,
+			SessionTimeout:                           normalizeSettingsTimeout(config.GlobalConfig.ServerConfig.SessionTimeout, 60),
+			UserAllowRegister:                        config.GlobalConfig.ServerConfig.UserAllowRegister,
+			UserLoginHumanVerificationEnabled:        config.GlobalConfig.ServerConfig.UserLoginHumanVerificationEnabled,
+			UserLoginHumanVerificationProviderID:     config.GlobalConfig.ServerConfig.UserLoginHumanVerificationProviderID,
+			UserRegisterHumanVerificationEnabled:     config.GlobalConfig.ServerConfig.UserRegisterHumanVerificationEnabled,
+			UserRegisterHumanVerificationProviderID:  config.GlobalConfig.ServerConfig.UserRegisterHumanVerificationProviderID,
+			UserRegisterHumanVerificationFollowLogin: config.GlobalConfig.ServerConfig.UserRegisterHumanVerificationFollowLogin,
+			UserEnable2FA:                            config.GlobalConfig.ServerConfig.UserEnable2FA,
+			UserRequireEmailVerification:             config.GlobalConfig.ServerConfig.UserRequireEmailVerification,
+			UserEnableSessionTimeout:                 config.GlobalConfig.ServerConfig.UserEnableSessionTimeout,
+			UserSessionTimeout:                       normalizeSettingsTimeout(config.GlobalConfig.ServerConfig.UserSessionTimeout, 120),
+			EnableWhitelist:                          false,
+			IPWhitelist:                              []string{},
 		}
 	}
 
@@ -141,20 +154,25 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 	}
 
 	var req struct {
-		EnableLogin                  bool   `json:"enable_login"`
-		EnableCaptcha                bool   `json:"enable_captcha"`
-		AdminUsername                string `json:"admin_username"`
-		AdminPassword                string `json:"admin_password"`
-		Enable2FA                    bool   `json:"enable_2fa"`
-		TOTPSecret                   string `json:"totp_secret"`
-		EnableSessionTimeout         bool   `json:"enable_session_timeout"`
-		SessionTimeout               int    `json:"session_timeout"`
-		UserAllowRegister            bool   `json:"user_allow_register"`
-		UserEnableCaptcha            bool   `json:"user_enable_captcha"`
-		UserEnable2FA                bool   `json:"user_enable_2fa"`
-		UserRequireEmailVerification bool   `json:"user_require_email_verification"`
-		UserEnableSessionTimeout     bool   `json:"user_enable_session_timeout"`
-		UserSessionTimeout           int    `json:"user_session_timeout"`
+		EnableLogin                              bool   `json:"enable_login"`
+		AdminHumanVerificationEnabled            bool   `json:"admin_human_verification_enabled"`
+		AdminHumanVerificationProviderID         string `json:"admin_human_verification_provider_id"`
+		AdminUsername                            string `json:"admin_username"`
+		AdminPassword                            string `json:"admin_password"`
+		Enable2FA                                bool   `json:"enable_2fa"`
+		TOTPSecret                               string `json:"totp_secret"`
+		EnableSessionTimeout                     bool   `json:"enable_session_timeout"`
+		SessionTimeout                           int    `json:"session_timeout"`
+		UserAllowRegister                        bool   `json:"user_allow_register"`
+		UserLoginHumanVerificationEnabled        bool   `json:"user_login_human_verification_enabled"`
+		UserLoginHumanVerificationProviderID     string `json:"user_login_human_verification_provider_id"`
+		UserRegisterHumanVerificationEnabled     bool   `json:"user_register_human_verification_enabled"`
+		UserRegisterHumanVerificationProviderID  string `json:"user_register_human_verification_provider_id"`
+		UserRegisterHumanVerificationFollowLogin bool   `json:"user_register_human_verification_follow_login"`
+		UserEnable2FA                            bool   `json:"user_enable_2fa"`
+		UserRequireEmailVerification             bool   `json:"user_require_email_verification"`
+		UserEnableSessionTimeout                 bool   `json:"user_enable_session_timeout"`
+		UserSessionTimeout                       int    `json:"user_session_timeout"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -166,23 +184,28 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 	sysCfg, err := ConfigSvc.GetSystemConfig()
 	if err != nil || sysCfg == nil {
 		sysCfg = &service.SystemConfig{
-			SystemTitle:              config.GlobalConfig.ServerConfig.SystemTitle,
-			AdminSuffix:              config.GlobalConfig.ServerConfig.AdminSuffix,
-			EnableLogin:              true,
-			EnableCaptcha:            true,
-			AdminUsername:            "admin",
-			AdminPassword:            "admin123",
-			AdminPasswordInitialized: config.GlobalConfig.ServerConfig.AdminPasswordInitialized,
-			Enable2FA:                false,
-			EnableSessionTimeout:     true,
-			SessionTimeout:           60,
-			UserAllowRegister:        true,
-			UserEnableCaptcha:        true,
-			UserEnable2FA:            true,
-			UserEnableSessionTimeout: true,
-			UserSessionTimeout:       120,
-			EnableWhitelist:          false,
-			IPWhitelist:              []string{},
+			SystemTitle:                              config.GlobalConfig.ServerConfig.SystemTitle,
+			AdminSuffix:                              config.GlobalConfig.ServerConfig.AdminSuffix,
+			EnableLogin:                              true,
+			AdminHumanVerificationEnabled:            false,
+			AdminHumanVerificationProviderID:         service.DefaultHumanVerificationProviderID,
+			AdminUsername:                            "admin",
+			AdminPassword:                            "admin123",
+			AdminPasswordInitialized:                 config.GlobalConfig.ServerConfig.AdminPasswordInitialized,
+			Enable2FA:                                false,
+			EnableSessionTimeout:                     true,
+			SessionTimeout:                           60,
+			UserAllowRegister:                        true,
+			UserLoginHumanVerificationEnabled:        false,
+			UserLoginHumanVerificationProviderID:     service.DefaultHumanVerificationProviderID,
+			UserRegisterHumanVerificationEnabled:     false,
+			UserRegisterHumanVerificationProviderID:  service.DefaultHumanVerificationProviderID,
+			UserRegisterHumanVerificationFollowLogin: true,
+			UserEnable2FA:                            true,
+			UserEnableSessionTimeout:                 true,
+			UserSessionTimeout:                       120,
+			EnableWhitelist:                          false,
+			IPWhitelist:                              []string{},
 		}
 	}
 
@@ -198,7 +221,8 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 
 	// 更新安全相关字段
 	sysCfg.EnableLogin = req.EnableLogin
-	sysCfg.EnableCaptcha = req.EnableLogin && req.EnableCaptcha
+	sysCfg.AdminHumanVerificationEnabled = req.EnableLogin && req.AdminHumanVerificationEnabled
+	sysCfg.AdminHumanVerificationProviderID = req.AdminHumanVerificationProviderID
 	if req.AdminUsername != "" {
 		sysCfg.AdminUsername = req.AdminUsername
 	}
@@ -211,20 +235,34 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 	sysCfg.EnableSessionTimeout = req.EnableLogin && req.EnableSessionTimeout
 	sysCfg.SessionTimeout = normalizeSettingsTimeout(req.SessionTimeout, 60)
 	sysCfg.UserAllowRegister = req.UserAllowRegister
-	sysCfg.UserEnableCaptcha = req.UserEnableCaptcha
+	sysCfg.UserLoginHumanVerificationEnabled = req.UserLoginHumanVerificationEnabled
+	sysCfg.UserLoginHumanVerificationProviderID = req.UserLoginHumanVerificationProviderID
+	sysCfg.UserRegisterHumanVerificationEnabled = req.UserRegisterHumanVerificationEnabled
+	sysCfg.UserRegisterHumanVerificationProviderID = req.UserRegisterHumanVerificationProviderID
+	sysCfg.UserRegisterHumanVerificationFollowLogin = req.UserRegisterHumanVerificationFollowLogin
 	sysCfg.UserEnable2FA = req.UserEnable2FA
 	sysCfg.UserRequireEmailVerification = req.UserRequireEmailVerification && config.GlobalConfig.EmailConfig.Enabled
 	sysCfg.UserEnableSessionTimeout = req.UserEnableSessionTimeout
 	sysCfg.UserSessionTimeout = normalizeSettingsTimeout(req.UserSessionTimeout, 120)
 
+	if err := validateHumanVerificationSettings(sysCfg); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
 	if err := ConfigSvc.SaveSystemConfig(sysCfg); err != nil {
 		c.JSON(500, gin.H{"success": false, "error": "保存配置失败: " + err.Error()})
+		return
+	}
+	if err := ConfigSvc.MarkHumanVerificationConfigured(); err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "保存人机验证配置标记失败: " + err.Error()})
 		return
 	}
 
 	// 同步更新全局配置
 	config.GlobalConfig.ServerConfig.EnableLogin = sysCfg.EnableLogin
-	config.GlobalConfig.ServerConfig.EnableCaptcha = sysCfg.EnableCaptcha
+	config.GlobalConfig.ServerConfig.AdminHumanVerificationEnabled = sysCfg.AdminHumanVerificationEnabled
+	config.GlobalConfig.ServerConfig.AdminHumanVerificationProviderID = sysCfg.AdminHumanVerificationProviderID
 	config.GlobalConfig.ServerConfig.AdminUsername = sysCfg.AdminUsername
 	if req.AdminPassword != "" {
 		config.GlobalConfig.ServerConfig.AdminPassword = sysCfg.AdminPassword
@@ -235,7 +273,11 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 	config.GlobalConfig.ServerConfig.EnableSessionTimeout = sysCfg.EnableSessionTimeout
 	config.GlobalConfig.ServerConfig.SessionTimeout = sysCfg.SessionTimeout
 	config.GlobalConfig.ServerConfig.UserAllowRegister = sysCfg.UserAllowRegister
-	config.GlobalConfig.ServerConfig.UserEnableCaptcha = sysCfg.UserEnableCaptcha
+	config.GlobalConfig.ServerConfig.UserLoginHumanVerificationEnabled = sysCfg.UserLoginHumanVerificationEnabled
+	config.GlobalConfig.ServerConfig.UserLoginHumanVerificationProviderID = sysCfg.UserLoginHumanVerificationProviderID
+	config.GlobalConfig.ServerConfig.UserRegisterHumanVerificationEnabled = sysCfg.UserRegisterHumanVerificationEnabled
+	config.GlobalConfig.ServerConfig.UserRegisterHumanVerificationProviderID = sysCfg.UserRegisterHumanVerificationProviderID
+	config.GlobalConfig.ServerConfig.UserRegisterHumanVerificationFollowLogin = sysCfg.UserRegisterHumanVerificationFollowLogin
 	config.GlobalConfig.ServerConfig.UserEnable2FA = sysCfg.UserEnable2FA
 	config.GlobalConfig.ServerConfig.UserRequireEmailVerification = sysCfg.UserRequireEmailVerification
 	config.GlobalConfig.ServerConfig.UserEnableSessionTimeout = sysCfg.UserEnableSessionTimeout
@@ -248,18 +290,73 @@ func AdminSaveSecuritySettings(c *gin.Context) {
 func PublicAuthConfig(c *gin.Context) {
 	serverCfg := config.GlobalConfig.ServerConfig
 	emailEnabled := config.GlobalConfig.EmailConfig.Enabled
+	humanSvc := currentHumanVerificationService()
+	humanVerification := gin.H{
+		service.HumanScopeAdminLogin:   humanSvc.PublicConfigForScope(service.HumanScopeAdminLogin),
+		service.HumanScopeUserLogin:    humanSvc.PublicConfigForScope(service.HumanScopeUserLogin),
+		service.HumanScopeUserRegister: humanSvc.PublicConfigForScope(service.HumanScopeUserRegister),
+	}
 	c.JSON(200, gin.H{
 		"success": true,
 		"config": gin.H{
 			"admin_enable_login":              serverCfg.EnableLogin,
-			"admin_enable_captcha":            serverCfg.EnableLogin && serverCfg.EnableCaptcha,
 			"user_allow_register":             serverCfg.UserAllowRegister,
-			"user_enable_captcha":             serverCfg.UserEnableCaptcha,
 			"user_enable_2fa":                 serverCfg.UserEnable2FA,
 			"user_require_email_verification": serverCfg.UserRequireEmailVerification && emailEnabled,
 			"email_enabled":                   emailEnabled,
+			"human_verification":              humanVerification,
 		},
 	})
+}
+
+func validateHumanVerificationSettings(sysCfg *service.SystemConfig) error {
+	if HumanVerificationSvc == nil {
+		if sysCfg.AdminHumanVerificationEnabled ||
+			sysCfg.UserLoginHumanVerificationEnabled ||
+			sysCfg.UserRegisterHumanVerificationEnabled {
+			return errors.New("人机验证服务未初始化")
+		}
+		return nil
+	}
+	if err := HumanVerificationSvc.ValidatePolicy(service.HumanScopeAdminLogin, sysCfg.AdminHumanVerificationEnabled, sysCfg.AdminHumanVerificationProviderID); err != nil {
+		return err
+	}
+	if err := HumanVerificationSvc.ValidatePolicy(service.HumanScopeUserLogin, sysCfg.UserLoginHumanVerificationEnabled, sysCfg.UserLoginHumanVerificationProviderID); err != nil {
+		return err
+	}
+	registerProviderID := sysCfg.UserRegisterHumanVerificationProviderID
+	if sysCfg.UserRegisterHumanVerificationFollowLogin {
+		registerProviderID = sysCfg.UserLoginHumanVerificationProviderID
+	}
+	return HumanVerificationSvc.ValidatePolicy(service.HumanScopeUserRegister, sysCfg.UserRegisterHumanVerificationEnabled, registerProviderID)
+}
+
+// effectiveHumanVerificationSettings 返回后台展示用的人机验证开关状态。
+// 复用 HumanVerificationService.EffectivePolicyForScope 作为单一权威判定，
+// 避免展示层与运行时状态来源不一致：展示关闭即意味着运行时不会校验。
+func effectiveHumanVerificationSettings(sysCfg *service.SystemConfig) *service.SystemConfig {
+	if sysCfg == nil || HumanVerificationSvc == nil {
+		return sysCfg
+	}
+	result := *sysCfg
+	// 未显式配置过策略时，全部关闭（与 GetSystemConfig 的 disableHumanVerification 一致）
+	if ConfigSvc != nil && !ConfigSvc.HumanVerificationConfigured() {
+		result.AdminHumanVerificationEnabled = false
+		result.UserLoginHumanVerificationEnabled = false
+		result.UserRegisterHumanVerificationEnabled = false
+		return &result
+	}
+	// 已配置时，按生效策略展示：默认 provider 不可用则降级为关闭，非默认 provider 保留启用
+	if !HumanVerificationSvc.EffectivePolicyForScope(service.HumanScopeAdminLogin).Enabled {
+		result.AdminHumanVerificationEnabled = false
+	}
+	if !HumanVerificationSvc.EffectivePolicyForScope(service.HumanScopeUserLogin).Enabled {
+		result.UserLoginHumanVerificationEnabled = false
+	}
+	if !HumanVerificationSvc.EffectivePolicyForScope(service.HumanScopeUserRegister).Enabled {
+		result.UserRegisterHumanVerificationEnabled = false
+	}
+	return &result
 }
 
 func normalizeSettingsTimeout(value, fallback int) int {

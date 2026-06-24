@@ -10,6 +10,11 @@ import (
 	"user-frontend/internal/model"
 )
 
+const (
+	DefaultHumanVerificationProviderID = "keyswift.image_captcha"
+	humanVerificationConfiguredKey     = "human_verification_configured"
+)
+
 // normalizeTimeoutMinutes 统一限制后台配置中的会话超时范围。
 func normalizeTimeoutMinutes(value, defaultValue int) int {
 	if value <= 0 {
@@ -24,119 +29,125 @@ func normalizeTimeoutMinutes(value, defaultValue int) int {
 	return value
 }
 
-// SystemConfig 系统配置结构
+// SystemConfig 系统配置结构。
 type SystemConfig struct {
-	SystemTitle                  string   `json:"system_title"`
-	AdminSuffix                  string   `json:"admin_suffix"`
-	EnableLogin                  bool     `json:"enable_login"`
-	EnableCaptcha                bool     `json:"enable_captcha"`
-	AdminUsername                string   `json:"admin_username"`
-	AdminPassword                string   `json:"admin_password"`
-	AdminPasswordInitialized     bool     `json:"admin_password_initialized"`
-	Enable2FA                    bool     `json:"enable_2fa"`
-	TOTPSecret                   string   `json:"totp_secret"`
-	EnableSessionTimeout         bool     `json:"enable_session_timeout"`
-	SessionTimeout               int      `json:"session_timeout"`
-	UserAllowRegister            bool     `json:"user_allow_register"`
-	UserEnableCaptcha            bool     `json:"user_enable_captcha"`
-	UserEnable2FA                bool     `json:"user_enable_2fa"`
-	UserRequireEmailVerification bool     `json:"user_require_email_verification"`
-	UserEnableSessionTimeout     bool     `json:"user_enable_session_timeout"`
-	UserSessionTimeout           int      `json:"user_session_timeout"`
-	EnableWhitelist              bool     `json:"enable_whitelist"`
-	IPWhitelist                  []string `json:"ip_whitelist"`
+	SystemTitle                              string   `json:"system_title"`
+	AdminSuffix                              string   `json:"admin_suffix"`
+	EnableLogin                              bool     `json:"enable_login"`
+	AdminHumanVerificationEnabled            bool     `json:"admin_human_verification_enabled"`
+	AdminHumanVerificationProviderID         string   `json:"admin_human_verification_provider_id"`
+	AdminUsername                            string   `json:"admin_username"`
+	AdminPassword                            string   `json:"admin_password"`
+	AdminPasswordInitialized                 bool     `json:"admin_password_initialized"`
+	Enable2FA                                bool     `json:"enable_2fa"`
+	TOTPSecret                               string   `json:"totp_secret"`
+	EnableSessionTimeout                     bool     `json:"enable_session_timeout"`
+	SessionTimeout                           int      `json:"session_timeout"`
+	UserAllowRegister                        bool     `json:"user_allow_register"`
+	UserLoginHumanVerificationEnabled        bool     `json:"user_login_human_verification_enabled"`
+	UserLoginHumanVerificationProviderID     string   `json:"user_login_human_verification_provider_id"`
+	UserRegisterHumanVerificationEnabled     bool     `json:"user_register_human_verification_enabled"`
+	UserRegisterHumanVerificationProviderID  string   `json:"user_register_human_verification_provider_id"`
+	UserRegisterHumanVerificationFollowLogin bool     `json:"user_register_human_verification_follow_login"`
+	UserEnable2FA                            bool     `json:"user_enable_2fa"`
+	UserRequireEmailVerification             bool     `json:"user_require_email_verification"`
+	UserEnableSessionTimeout                 bool     `json:"user_enable_session_timeout"`
+	UserSessionTimeout                       int      `json:"user_session_timeout"`
+	EnableWhitelist                          bool     `json:"enable_whitelist"`
+	IPWhitelist                              []string `json:"ip_whitelist"`
 }
 
-// GetSystemConfig 获取系统配置
+func defaultProviderID(value string) string {
+	if value != "" {
+		return value
+	}
+	return DefaultHumanVerificationProviderID
+}
+
+func systemConfigFromGlobal(globalCfg config.ServerConfig) *SystemConfig {
+	return &SystemConfig{
+		SystemTitle:                              getStringOrDefault(globalCfg.SystemTitle, "卡密购买系统"),
+		AdminSuffix:                              getStringOrDefault(globalCfg.AdminSuffix, "manage"),
+		EnableLogin:                              globalCfg.EnableLogin,
+		AdminHumanVerificationEnabled:            globalCfg.AdminHumanVerificationEnabled,
+		AdminHumanVerificationProviderID:         defaultProviderID(globalCfg.AdminHumanVerificationProviderID),
+		AdminUsername:                            getStringOrDefault(globalCfg.AdminUsername, "admin"),
+		AdminPassword:                            getStringOrDefault(globalCfg.AdminPassword, "admin123"),
+		AdminPasswordInitialized:                 globalCfg.AdminPasswordInitialized,
+		Enable2FA:                                globalCfg.Enable2FA,
+		TOTPSecret:                               globalCfg.TOTPSecret,
+		EnableSessionTimeout:                     globalCfg.EnableSessionTimeout,
+		SessionTimeout:                           normalizeTimeoutMinutes(globalCfg.SessionTimeout, 60),
+		UserAllowRegister:                        globalCfg.UserAllowRegister,
+		UserLoginHumanVerificationEnabled:        globalCfg.UserLoginHumanVerificationEnabled,
+		UserLoginHumanVerificationProviderID:     defaultProviderID(globalCfg.UserLoginHumanVerificationProviderID),
+		UserRegisterHumanVerificationEnabled:     globalCfg.UserRegisterHumanVerificationEnabled,
+		UserRegisterHumanVerificationProviderID:  defaultProviderID(globalCfg.UserRegisterHumanVerificationProviderID),
+		UserRegisterHumanVerificationFollowLogin: globalCfg.UserRegisterHumanVerificationFollowLogin,
+		UserEnable2FA:                            globalCfg.UserEnable2FA,
+		UserRequireEmailVerification:             globalCfg.UserRequireEmailVerification,
+		UserEnableSessionTimeout:                 globalCfg.UserEnableSessionTimeout,
+		UserSessionTimeout:                       normalizeTimeoutMinutes(globalCfg.UserSessionTimeout, 120),
+		EnableWhitelist:                          false,
+		IPWhitelist:                              []string{},
+	}
+}
+
+// GetSystemConfig 获取系统配置。
 func (s *ConfigService) GetSystemConfig() (*SystemConfig, error) {
-	// 检查 repo 是否已初始化
 	if s.repo == nil {
-		globalCfg := config.GlobalConfig.ServerConfig
-		return &SystemConfig{
-			SystemTitle:                  getStringOrDefault(globalCfg.SystemTitle, "卡密购买系统"),
-			AdminSuffix:                  getStringOrDefault(globalCfg.AdminSuffix, "manage"),
-			EnableLogin:                  globalCfg.EnableLogin,
-			EnableCaptcha:                globalCfg.EnableCaptcha,
-			AdminUsername:                getStringOrDefault(globalCfg.AdminUsername, "admin"),
-			AdminPassword:                getStringOrDefault(globalCfg.AdminPassword, "admin123"),
-			AdminPasswordInitialized:     globalCfg.AdminPasswordInitialized,
-			Enable2FA:                    globalCfg.Enable2FA,
-			TOTPSecret:                   globalCfg.TOTPSecret,
-			EnableSessionTimeout:         globalCfg.EnableSessionTimeout,
-			SessionTimeout:               normalizeTimeoutMinutes(globalCfg.SessionTimeout, 60),
-			UserAllowRegister:            globalCfg.UserAllowRegister,
-			UserEnableCaptcha:            globalCfg.UserEnableCaptcha,
-			UserEnable2FA:                globalCfg.UserEnable2FA,
-			UserRequireEmailVerification: globalCfg.UserRequireEmailVerification,
-			UserEnableSessionTimeout:     globalCfg.UserEnableSessionTimeout,
-			UserSessionTimeout:           normalizeTimeoutMinutes(globalCfg.UserSessionTimeout, 120),
-			EnableWhitelist:              false,
-			IPWhitelist:                  []string{},
-		}, nil
+		return systemConfigFromGlobal(config.GlobalConfig.ServerConfig), nil
 	}
 
 	dbConfig, err := s.repo.GetSystemConfig()
 	if err != nil {
-		globalCfg := config.GlobalConfig.ServerConfig
-		return &SystemConfig{
-			SystemTitle:                  getStringOrDefault(globalCfg.SystemTitle, "卡密购买系统"),
-			AdminSuffix:                  getStringOrDefault(globalCfg.AdminSuffix, "manage"),
-			EnableLogin:                  globalCfg.EnableLogin,
-			EnableCaptcha:                globalCfg.EnableCaptcha,
-			AdminUsername:                getStringOrDefault(globalCfg.AdminUsername, "admin"),
-			AdminPassword:                getStringOrDefault(globalCfg.AdminPassword, "admin123"),
-			AdminPasswordInitialized:     globalCfg.AdminPasswordInitialized,
-			Enable2FA:                    globalCfg.Enable2FA,
-			TOTPSecret:                   globalCfg.TOTPSecret,
-			EnableSessionTimeout:         globalCfg.EnableSessionTimeout,
-			SessionTimeout:               normalizeTimeoutMinutes(globalCfg.SessionTimeout, 60),
-			UserAllowRegister:            globalCfg.UserAllowRegister,
-			UserEnableCaptcha:            globalCfg.UserEnableCaptcha,
-			UserEnable2FA:                globalCfg.UserEnable2FA,
-			UserRequireEmailVerification: globalCfg.UserRequireEmailVerification,
-			UserEnableSessionTimeout:     globalCfg.UserEnableSessionTimeout,
-			UserSessionTimeout:           normalizeTimeoutMinutes(globalCfg.UserSessionTimeout, 120),
-			EnableWhitelist:              false,
-			IPWhitelist:                  []string{},
-		}, nil
+		return systemConfigFromGlobal(config.GlobalConfig.ServerConfig), nil
 	}
 
-	// 解析IP白名单JSON
 	var ipWhitelist []string
 	if dbConfig.IPWhitelist != "" {
-		json.Unmarshal([]byte(dbConfig.IPWhitelist), &ipWhitelist)
+		_ = json.Unmarshal([]byte(dbConfig.IPWhitelist), &ipWhitelist)
 	}
 
-	return &SystemConfig{
-		SystemTitle:                  dbConfig.SystemTitle,
-		AdminSuffix:                  dbConfig.AdminSuffix,
-		EnableLogin:                  dbConfig.EnableLogin,
-		EnableCaptcha:                dbConfig.EnableCaptcha,
-		AdminUsername:                dbConfig.AdminUsername,
-		AdminPassword:                dbConfig.AdminPassword,
-		AdminPasswordInitialized:     dbConfig.AdminPasswordInitialized,
-		Enable2FA:                    dbConfig.Enable2FA,
-		TOTPSecret:                   dbConfig.TOTPSecret,
-		EnableSessionTimeout:         dbConfig.EnableSessionTimeout,
-		SessionTimeout:               dbConfig.SessionTimeout,
-		UserAllowRegister:            dbConfig.UserAllowRegister,
-		UserEnableCaptcha:            dbConfig.UserEnableCaptcha,
-		UserEnable2FA:                dbConfig.UserEnable2FA,
-		UserRequireEmailVerification: dbConfig.UserRequireEmailVerification,
-		UserEnableSessionTimeout:     dbConfig.UserEnableSessionTimeout,
-		UserSessionTimeout:           dbConfig.UserSessionTimeout,
-		EnableWhitelist:              dbConfig.EnableWhitelist,
-		IPWhitelist:                  ipWhitelist,
-	}, nil
+	cfg := normalizeSystemConfig(&SystemConfig{
+		SystemTitle:                              dbConfig.SystemTitle,
+		AdminSuffix:                              dbConfig.AdminSuffix,
+		EnableLogin:                              dbConfig.EnableLogin,
+		AdminHumanVerificationEnabled:            dbConfig.AdminHumanVerificationEnabled,
+		AdminHumanVerificationProviderID:         dbConfig.AdminHumanVerificationProviderID,
+		AdminUsername:                            dbConfig.AdminUsername,
+		AdminPassword:                            dbConfig.AdminPassword,
+		AdminPasswordInitialized:                 dbConfig.AdminPasswordInitialized,
+		Enable2FA:                                dbConfig.Enable2FA,
+		TOTPSecret:                               dbConfig.TOTPSecret,
+		EnableSessionTimeout:                     dbConfig.EnableSessionTimeout,
+		SessionTimeout:                           dbConfig.SessionTimeout,
+		UserAllowRegister:                        dbConfig.UserAllowRegister,
+		UserLoginHumanVerificationEnabled:        dbConfig.UserLoginHumanVerificationEnabled,
+		UserLoginHumanVerificationProviderID:     dbConfig.UserLoginHumanVerificationProviderID,
+		UserRegisterHumanVerificationEnabled:     dbConfig.UserRegisterHumanVerificationEnabled,
+		UserRegisterHumanVerificationProviderID:  dbConfig.UserRegisterHumanVerificationProviderID,
+		UserRegisterHumanVerificationFollowLogin: dbConfig.UserRegisterHumanVerificationFollowLogin,
+		UserEnable2FA:                            dbConfig.UserEnable2FA,
+		UserRequireEmailVerification:             dbConfig.UserRequireEmailVerification,
+		UserEnableSessionTimeout:                 dbConfig.UserEnableSessionTimeout,
+		UserSessionTimeout:                       dbConfig.UserSessionTimeout,
+		EnableWhitelist:                          dbConfig.EnableWhitelist,
+		IPWhitelist:                              ipWhitelist,
+	})
+	if !s.HumanVerificationConfigured() {
+		disableHumanVerification(cfg)
+	}
+	return cfg, nil
 }
 
-// SaveSystemConfig 保存系统配置
+// SaveSystemConfig 保存系统配置。
 func (s *ConfigService) SaveSystemConfig(cfg *SystemConfig) error {
 	if s.repo == nil {
 		return fmt.Errorf("数据库未连接")
 	}
+	cfg = normalizeSystemConfig(cfg)
 
-	// 序列化IP白名单为JSON
 	ipWhitelistJSON := "[]"
 	if len(cfg.IPWhitelist) > 0 {
 		if data, err := json.Marshal(cfg.IPWhitelist); err == nil {
@@ -145,63 +156,73 @@ func (s *ConfigService) SaveSystemConfig(cfg *SystemConfig) error {
 	}
 
 	dbConfig := &model.SystemConfigDB{
-		SystemTitle:                  cfg.SystemTitle,
-		AdminSuffix:                  cfg.AdminSuffix,
-		EnableLogin:                  cfg.EnableLogin,
-		EnableCaptcha:                cfg.EnableCaptcha,
-		AdminUsername:                cfg.AdminUsername,
-		AdminPassword:                cfg.AdminPassword,
-		AdminPasswordInitialized:     cfg.AdminPasswordInitialized,
-		Enable2FA:                    cfg.Enable2FA,
-		TOTPSecret:                   cfg.TOTPSecret,
-		EnableSessionTimeout:         cfg.EnableSessionTimeout,
-		SessionTimeout:               normalizeTimeoutMinutes(cfg.SessionTimeout, 60),
-		UserAllowRegister:            cfg.UserAllowRegister,
-		UserEnableCaptcha:            cfg.UserEnableCaptcha,
-		UserEnable2FA:                cfg.UserEnable2FA,
-		UserRequireEmailVerification: cfg.UserRequireEmailVerification,
-		UserEnableSessionTimeout:     cfg.UserEnableSessionTimeout,
-		UserSessionTimeout:           normalizeTimeoutMinutes(cfg.UserSessionTimeout, 120),
-		EnableWhitelist:              cfg.EnableWhitelist,
-		IPWhitelist:                  ipWhitelistJSON,
+		SystemTitle:                              cfg.SystemTitle,
+		AdminSuffix:                              cfg.AdminSuffix,
+		EnableLogin:                              cfg.EnableLogin,
+		AdminHumanVerificationEnabled:            cfg.AdminHumanVerificationEnabled,
+		AdminHumanVerificationProviderID:         cfg.AdminHumanVerificationProviderID,
+		AdminUsername:                            cfg.AdminUsername,
+		AdminPassword:                            cfg.AdminPassword,
+		AdminPasswordInitialized:                 cfg.AdminPasswordInitialized,
+		Enable2FA:                                cfg.Enable2FA,
+		TOTPSecret:                               cfg.TOTPSecret,
+		EnableSessionTimeout:                     cfg.EnableSessionTimeout,
+		SessionTimeout:                           normalizeTimeoutMinutes(cfg.SessionTimeout, 60),
+		UserAllowRegister:                        cfg.UserAllowRegister,
+		UserLoginHumanVerificationEnabled:        cfg.UserLoginHumanVerificationEnabled,
+		UserLoginHumanVerificationProviderID:     cfg.UserLoginHumanVerificationProviderID,
+		UserRegisterHumanVerificationEnabled:     cfg.UserRegisterHumanVerificationEnabled,
+		UserRegisterHumanVerificationProviderID:  cfg.UserRegisterHumanVerificationProviderID,
+		UserRegisterHumanVerificationFollowLogin: cfg.UserRegisterHumanVerificationFollowLogin,
+		UserEnable2FA:                            cfg.UserEnable2FA,
+		UserRequireEmailVerification:             cfg.UserRequireEmailVerification,
+		UserEnableSessionTimeout:                 cfg.UserEnableSessionTimeout,
+		UserSessionTimeout:                       normalizeTimeoutMinutes(cfg.UserSessionTimeout, 120),
+		EnableWhitelist:                          cfg.EnableWhitelist,
+		IPWhitelist:                              ipWhitelistJSON,
 	}
-
-	err := s.repo.SaveSystemConfig(dbConfig)
-	if err != nil {
+	if err := s.repo.SaveSystemConfig(dbConfig); err != nil {
 		return err
 	}
-
-	// 同步更新内存中的 GlobalConfig
 	if config.GlobalConfig != nil {
-		config.GlobalConfig.SetServerConfig(config.ServerConfig{
-			Port:                         config.GlobalConfig.ServerConfig.Port,
-			UseHTTPS:                     config.GlobalConfig.ServerConfig.UseHTTPS,
-			CertFile:                     config.GlobalConfig.ServerConfig.CertFile,
-			KeyFile:                      config.GlobalConfig.ServerConfig.KeyFile,
-			AdminUsername:                cfg.AdminUsername,
-			AdminPassword:                cfg.AdminPassword,
-			AdminPasswordInitialized:     cfg.AdminPasswordInitialized,
-			AdminSuffix:                  cfg.AdminSuffix,
-			SystemTitle:                  cfg.SystemTitle,
-			EnableLogin:                  cfg.EnableLogin,
-			EnableCaptcha:                cfg.EnableCaptcha,
-			Enable2FA:                    cfg.Enable2FA,
-			TOTPSecret:                   cfg.TOTPSecret,
-			EnableSessionTimeout:         cfg.EnableSessionTimeout,
-			SessionTimeout:               normalizeTimeoutMinutes(cfg.SessionTimeout, 60),
-			UserAllowRegister:            cfg.UserAllowRegister,
-			UserEnableCaptcha:            cfg.UserEnableCaptcha,
-			UserEnable2FA:                cfg.UserEnable2FA,
-			UserRequireEmailVerification: cfg.UserRequireEmailVerification,
-			UserEnableSessionTimeout:     cfg.UserEnableSessionTimeout,
-			UserSessionTimeout:           normalizeTimeoutMinutes(cfg.UserSessionTimeout, 120),
-		})
+		config.GlobalConfig.SetServerConfig(serverConfigFromSystemConfig(cfg))
 	}
-
 	return nil
 }
 
-// UpdateSystemTitle 更新系统标题
+func serverConfigFromSystemConfig(cfg *SystemConfig) config.ServerConfig {
+	current := config.GlobalConfig.ServerConfig
+	return config.ServerConfig{
+		Port:                                     current.Port,
+		UseHTTPS:                                 current.UseHTTPS,
+		CertFile:                                 current.CertFile,
+		KeyFile:                                  current.KeyFile,
+		AdminUsername:                            cfg.AdminUsername,
+		AdminPassword:                            cfg.AdminPassword,
+		AdminPasswordInitialized:                 cfg.AdminPasswordInitialized,
+		AdminSuffix:                              cfg.AdminSuffix,
+		SystemTitle:                              cfg.SystemTitle,
+		EnableLogin:                              cfg.EnableLogin,
+		AdminHumanVerificationEnabled:            cfg.AdminHumanVerificationEnabled,
+		AdminHumanVerificationProviderID:         cfg.AdminHumanVerificationProviderID,
+		Enable2FA:                                cfg.Enable2FA,
+		TOTPSecret:                               cfg.TOTPSecret,
+		EnableSessionTimeout:                     cfg.EnableSessionTimeout,
+		SessionTimeout:                           normalizeTimeoutMinutes(cfg.SessionTimeout, 60),
+		UserAllowRegister:                        cfg.UserAllowRegister,
+		UserLoginHumanVerificationEnabled:        cfg.UserLoginHumanVerificationEnabled,
+		UserLoginHumanVerificationProviderID:     cfg.UserLoginHumanVerificationProviderID,
+		UserRegisterHumanVerificationEnabled:     cfg.UserRegisterHumanVerificationEnabled,
+		UserRegisterHumanVerificationProviderID:  cfg.UserRegisterHumanVerificationProviderID,
+		UserRegisterHumanVerificationFollowLogin: cfg.UserRegisterHumanVerificationFollowLogin,
+		UserEnable2FA:                            cfg.UserEnable2FA,
+		UserRequireEmailVerification:             cfg.UserRequireEmailVerification,
+		UserEnableSessionTimeout:                 cfg.UserEnableSessionTimeout,
+		UserSessionTimeout:                       normalizeTimeoutMinutes(cfg.UserSessionTimeout, 120),
+	}
+}
+
+// UpdateSystemTitle 更新系统标题。
 func (s *ConfigService) UpdateSystemTitle(title string) error {
 	cfg, err := s.GetSystemConfig()
 	if err != nil {
@@ -211,7 +232,7 @@ func (s *ConfigService) UpdateSystemTitle(title string) error {
 	return s.SaveSystemConfig(cfg)
 }
 
-// UpdateAdminSuffix 更新管理后台路径后缀
+// UpdateAdminSuffix 更新管理后台路径后缀。
 func (s *ConfigService) UpdateAdminSuffix(suffix string) error {
 	cfg, err := s.GetSystemConfig()
 	if err != nil {
@@ -221,7 +242,7 @@ func (s *ConfigService) UpdateAdminSuffix(suffix string) error {
 	return s.SaveSystemConfig(cfg)
 }
 
-// UpdateSecuritySettings 更新安全设置
+// UpdateSecuritySettings 更新安全设置。
 func (s *ConfigService) UpdateSecuritySettings(enableLogin bool, adminUsername, adminPassword string, enable2FA bool, totpSecret string) error {
 	cfg, err := s.GetSystemConfig()
 	if err != nil {
@@ -240,7 +261,7 @@ func (s *ConfigService) UpdateSecuritySettings(enableLogin bool, adminUsername, 
 	return s.SaveSystemConfig(cfg)
 }
 
-// GetWhitelistConfig 获取白名单配置
+// GetWhitelistConfig 获取白名单配置。
 func (s *ConfigService) GetWhitelistConfig() (bool, []string, error) {
 	cfg, err := s.GetSystemConfig()
 	if err != nil {
@@ -249,7 +270,7 @@ func (s *ConfigService) GetWhitelistConfig() (bool, []string, error) {
 	return cfg.EnableWhitelist, cfg.IPWhitelist, nil
 }
 
-// UpdateWhitelistConfig 更新白名单配置
+// UpdateWhitelistConfig 更新白名单配置。
 func (s *ConfigService) UpdateWhitelistConfig(enabled bool, whitelist []string) error {
 	cfg, err := s.GetSystemConfig()
 	if err != nil {
@@ -260,13 +281,12 @@ func (s *ConfigService) UpdateWhitelistConfig(enabled bool, whitelist []string) 
 	return s.SaveSystemConfig(cfg)
 }
 
-// IsIPInWhitelist 检查IP是否在白名单中
+// IsIPInWhitelist 检查 IP 是否在白名单中。
 func (s *ConfigService) IsIPInWhitelist(ip string) bool {
 	cfg, err := s.GetSystemConfig()
 	if err != nil || !cfg.EnableWhitelist {
-		return true // 白名单未启用时，所有IP都允许
+		return true
 	}
-
 	for _, whiteIP := range cfg.IPWhitelist {
 		if whiteIP == ip {
 			return true
@@ -288,6 +308,13 @@ func normalizeSystemConfig(cfg *SystemConfig) *SystemConfig {
 	if cfg.AdminUsername == "" {
 		cfg.AdminUsername = "admin"
 	}
+	cfg.AdminHumanVerificationProviderID = defaultProviderID(cfg.AdminHumanVerificationProviderID)
+	cfg.UserLoginHumanVerificationProviderID = defaultProviderID(cfg.UserLoginHumanVerificationProviderID)
+	if cfg.UserRegisterHumanVerificationFollowLogin {
+		cfg.UserRegisterHumanVerificationProviderID = cfg.UserLoginHumanVerificationProviderID
+	} else {
+		cfg.UserRegisterHumanVerificationProviderID = defaultProviderID(cfg.UserRegisterHumanVerificationProviderID)
+	}
 	cfg.SessionTimeout = normalizeTimeoutMinutes(cfg.SessionTimeout, 60)
 	cfg.UserSessionTimeout = normalizeTimeoutMinutes(cfg.UserSessionTimeout, 120)
 	if cfg.IPWhitelist == nil {
@@ -296,56 +323,76 @@ func normalizeSystemConfig(cfg *SystemConfig) *SystemConfig {
 	return cfg
 }
 
-// NeedsInitialSetup 检查是否需要初始化设置（首次启动）
-// 返回 true 表示需要设置初始密码
+func disableHumanVerification(cfg *SystemConfig) {
+	cfg.AdminHumanVerificationEnabled = false
+	cfg.UserLoginHumanVerificationEnabled = false
+	cfg.UserRegisterHumanVerificationEnabled = false
+}
+
+// HumanVerificationConfigured 判断管理员是否已经显式保存过人机验证策略。
+func (s *ConfigService) HumanVerificationConfigured() bool {
+	if s == nil || s.repo == nil {
+		return false
+	}
+	value, err := s.repo.GetSetting(humanVerificationConfiguredKey)
+	return err == nil && value == "true"
+}
+
+// MarkHumanVerificationConfigured 标记人机验证策略已由后台显式保存。
+func (s *ConfigService) MarkHumanVerificationConfigured() error {
+	if s == nil || s.repo == nil {
+		return fmt.Errorf("数据库未连接")
+	}
+	return s.repo.SetSetting(humanVerificationConfiguredKey, "true", "后台登录配置已显式保存人机验证策略")
+}
+
+// NeedsInitialSetup 检查是否需要初始化设置。
 func (s *ConfigService) NeedsInitialSetup() bool {
-	// 首先检查数据库中是否有系统配置记录
 	if s.repo != nil {
 		dbConfig, err := s.repo.GetSystemConfig()
 		if err != nil {
-			// 数据库没有配置记录，需要初始化
 			return true
 		}
 		return !dbConfig.AdminPasswordInitialized
 	}
-
-	// repo 未初始化，检查全局配置
 	cfg := config.GlobalConfig.ServerConfig
 	return !cfg.AdminPasswordInitialized
 }
 
-// SetInitialPassword 设置初始管理员密码
-// 只有在初始密码尚未完成用户设置时才允许设置。
+// SetInitialPassword 设置初始管理员密码。
 func (s *ConfigService) SetInitialPassword(newPassword string) error {
 	if !s.NeedsInitialSetup() {
 		return fmt.Errorf("初始密码已设置，无法重复设置")
 	}
-
 	if len(newPassword) < 6 {
 		return fmt.Errorf("密码长度至少6位")
 	}
 
 	cfg, err := s.GetSystemConfig()
 	if err != nil {
-		// 创建新配置
 		cfg = &SystemConfig{
-			SystemTitle:              "卡密购买系统",
-			AdminSuffix:              "manage",
-			EnableLogin:              true,
-			EnableCaptcha:            true,
-			AdminUsername:            "admin",
-			AdminPassword:            newPassword,
-			AdminPasswordInitialized: true,
-			Enable2FA:                false,
-			EnableSessionTimeout:     true,
-			SessionTimeout:           60,
-			UserAllowRegister:        true,
-			UserEnableCaptcha:        true,
-			UserEnable2FA:            true,
-			UserEnableSessionTimeout: true,
-			UserSessionTimeout:       120,
-			EnableWhitelist:          false,
-			IPWhitelist:              []string{},
+			SystemTitle:                              "卡密购买系统",
+			AdminSuffix:                              "manage",
+			EnableLogin:                              true,
+			AdminHumanVerificationEnabled:            false,
+			AdminHumanVerificationProviderID:         DefaultHumanVerificationProviderID,
+			AdminUsername:                            "admin",
+			AdminPassword:                            newPassword,
+			AdminPasswordInitialized:                 true,
+			Enable2FA:                                false,
+			EnableSessionTimeout:                     true,
+			SessionTimeout:                           60,
+			UserAllowRegister:                        true,
+			UserLoginHumanVerificationEnabled:        false,
+			UserLoginHumanVerificationProviderID:     DefaultHumanVerificationProviderID,
+			UserRegisterHumanVerificationEnabled:     false,
+			UserRegisterHumanVerificationProviderID:  DefaultHumanVerificationProviderID,
+			UserRegisterHumanVerificationFollowLogin: true,
+			UserEnable2FA:                            true,
+			UserEnableSessionTimeout:                 true,
+			UserSessionTimeout:                       120,
+			EnableWhitelist:                          false,
+			IPWhitelist:                              []string{},
 		}
 	} else {
 		cfg = normalizeSystemConfig(cfg)
@@ -356,10 +403,8 @@ func (s *ConfigService) SetInitialPassword(newPassword string) error {
 	if err := s.SaveSystemConfig(cfg); err != nil {
 		return err
 	}
-
 	if s.NeedsInitialSetup() {
 		return fmt.Errorf("初始密码已保存，但初始化状态未生效")
 	}
-
 	return nil
 }

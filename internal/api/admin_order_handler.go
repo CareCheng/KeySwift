@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"user-frontend/internal/model"
+	pluginapi "user-frontend/internal/plugin"
 
 	"github.com/gin-gonic/gin"
 )
@@ -60,5 +61,34 @@ func AdminGetOrder(c *gin.Context) {
 		return
 	}
 
+	response := gin.H{"success": true, "order": order}
+	if OrderKernelSvc != nil {
+		if snapshot, err := OrderKernelSvc.SnapshotByOrderID(uint(id)); err == nil {
+			response["trace"] = snapshot
+		}
+	}
+	c.JSON(200, response)
+}
+
+// AdminCreatePluginMaterialOrder 由宿主接收商品插件订单素材并创建正式订单。
+func AdminCreatePluginMaterialOrder(c *gin.Context) {
+	if OrderKernelSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "订单内核未初始化"})
+		return
+	}
+	var req struct {
+		UserID   uint                           `json:"user_id" binding:"required"`
+		Username string                         `json:"username"`
+		Material pluginapi.ProductOrderMaterial `json:"material" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": "参数错误"})
+		return
+	}
+	order, err := OrderKernelSvc.CreatePluginMaterialOrder(req.UserID, req.Username, GetClientIP(c), req.Material)
+	if err != nil {
+		c.JSON(400, gin.H{"success": false, "error": err.Error()})
+		return
+	}
 	c.JSON(200, gin.H{"success": true, "order": order})
 }

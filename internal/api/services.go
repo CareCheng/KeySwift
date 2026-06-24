@@ -14,22 +14,27 @@ import (
 
 // ==================== 核心服务 ====================
 var (
-	UserSvc         *service.UserService         // 用户服务
-	OrderSvc        *service.OrderService        // 订单服务
-	ProductSvc      *service.ProductService      // 商品服务
-	EmailSvc        *service.EmailService        // 邮箱服务
-	ConfigSvc       *service.ConfigService       // 配置服务（主数据库存储）
-	DBConfigSvc     *service.ConfigService       // 数据库配置服务（SQLite配置数据库）
-	SecuritySvc     *service.SecurityService     // 安全服务
-	LogSvc          *service.LogService          // 日志服务
-	CategorySvc     *service.CategoryService     // 分类服务
-	SessionSvc      *service.SessionService      // 会话服务（数据库持久化）
-	ManualKamiSvc   *service.ManualKamiService   // 手动卡密服务
-	BalanceSvc      *service.BalanceService      // 余额服务
-	PayPasswordSvc  *service.PayPasswordService  // 支付密码服务
-	RoleSvc         *service.RoleService         // 角色权限服务
-	ProductImageSvc *service.ProductImageService // 商品图片服务
-	PluginSvc       *service.PluginService       // 插件治理服务
+	UserSvc              *service.UserService              // 用户服务
+	OrderSvc             *service.OrderService             // 订单服务
+	OrderKernelSvc       *service.OrderKernelService       // 宿主订单状态裁决内核
+	ProductSvc           *service.ProductService           // 商品服务
+	EmailSvc             *service.EmailService             // 邮箱服务
+	ConfigSvc            *service.ConfigService            // 配置服务（主数据库存储）
+	DBConfigSvc          *service.ConfigService            // 数据库配置服务（SQLite配置数据库）
+	SecuritySvc          *service.SecurityService          // 安全服务
+	LogSvc               *service.LogService               // 日志服务
+	CategorySvc          *service.CategoryService          // 分类服务
+	SessionSvc           *service.SessionService           // 会话服务（数据库持久化）
+	ManualKamiSvc        *service.ManualKamiService        // 手动卡密服务
+	BalanceSvc           *service.BalanceService           // 余额服务
+	PayPasswordSvc       *service.PayPasswordService       // 支付密码服务
+	RoleSvc              *service.RoleService              // 角色权限服务
+	SubjectSvc           *service.SubjectService           // 统一主体上下文服务
+	GovernanceSvc        *service.GovernanceService        // 权限、审计、事件和任务治理服务
+	ProductImageSvc      *service.ProductImageService      // 商品图片服务
+	PluginSvc            *service.PluginService            // 插件治理服务
+	PluginRuntimeSvc     *service.PluginRuntimeService     // 插件运行时服务
+	HumanVerificationSvc *service.HumanVerificationService // 人机验证服务
 )
 
 // InitDBConfigService 初始化数据库配置服务（在主数据库初始化之前调用）
@@ -47,10 +52,11 @@ func InitServices(cfg *config.Config) {
 	if model.DBConnected {
 		repo := repository.NewRepository(model.DB)
 
+		// 初始化角色和治理底座
+		initGovernanceBaseServices(repo)
+
 		// 初始化核心服务
 		initCoreServices(repo, cfg)
-
-		// 初始化余额、支付密码、角色等核心支撑服务
 		initSupportServices(repo)
 		initPluginService(repo, cfg)
 
@@ -84,8 +90,10 @@ func initCoreServices(repo *repository.Repository, cfg *config.Config) {
 	EmailSvc = service.NewEmailService(repo, &cfg.EmailConfig)
 
 	// 订单服务
+	OrderKernelSvc = service.NewOrderKernelService(repo, GovernanceSvc)
 	OrderSvc = service.NewOrderService(repo, cfg)
 	OrderSvc.SetConfigService(ConfigSvc)
+	OrderSvc.SetOrderKernelService(OrderKernelSvc)
 
 	// 初始化安全服务
 	SecuritySvc = service.NewSecurityService(repo)
@@ -110,7 +118,8 @@ func loadSystemConfig(cfg *config.Config) {
 		cfg.ServerConfig.SystemTitle = sysCfg.SystemTitle
 		cfg.ServerConfig.AdminSuffix = sysCfg.AdminSuffix
 		cfg.ServerConfig.EnableLogin = sysCfg.EnableLogin
-		cfg.ServerConfig.EnableCaptcha = sysCfg.EnableCaptcha
+		cfg.ServerConfig.AdminHumanVerificationEnabled = sysCfg.AdminHumanVerificationEnabled
+		cfg.ServerConfig.AdminHumanVerificationProviderID = sysCfg.AdminHumanVerificationProviderID
 		cfg.ServerConfig.AdminUsername = sysCfg.AdminUsername
 		if sysCfg.AdminPassword != "" {
 			cfg.ServerConfig.AdminPassword = sysCfg.AdminPassword
@@ -121,7 +130,11 @@ func loadSystemConfig(cfg *config.Config) {
 		cfg.ServerConfig.EnableSessionTimeout = sysCfg.EnableSessionTimeout
 		cfg.ServerConfig.SessionTimeout = sysCfg.SessionTimeout
 		cfg.ServerConfig.UserAllowRegister = sysCfg.UserAllowRegister
-		cfg.ServerConfig.UserEnableCaptcha = sysCfg.UserEnableCaptcha
+		cfg.ServerConfig.UserLoginHumanVerificationEnabled = sysCfg.UserLoginHumanVerificationEnabled
+		cfg.ServerConfig.UserLoginHumanVerificationProviderID = sysCfg.UserLoginHumanVerificationProviderID
+		cfg.ServerConfig.UserRegisterHumanVerificationEnabled = sysCfg.UserRegisterHumanVerificationEnabled
+		cfg.ServerConfig.UserRegisterHumanVerificationProviderID = sysCfg.UserRegisterHumanVerificationProviderID
+		cfg.ServerConfig.UserRegisterHumanVerificationFollowLogin = sysCfg.UserRegisterHumanVerificationFollowLogin
 		cfg.ServerConfig.UserEnable2FA = sysCfg.UserEnable2FA
 		cfg.ServerConfig.UserRequireEmailVerification = sysCfg.UserRequireEmailVerification
 		cfg.ServerConfig.UserEnableSessionTimeout = sysCfg.UserEnableSessionTimeout
@@ -136,7 +149,18 @@ func loadEmailConfig(cfg *config.Config) {
 	}
 }
 
-// initSupportServices 初始化核心支撑服务
+// initGovernanceBaseServices 初始化角色和治理底座。
+func initGovernanceBaseServices(repo *repository.Repository) {
+	// 角色权限服务
+	RoleSvc = service.NewRoleService(repo)
+	_ = RoleSvc.InitDefaultRoles()
+
+	// 治理服务
+	GovernanceSvc = service.NewGovernanceService(repo)
+	_ = GovernanceSvc.SyncHostPermissions(model.AllPermissions)
+}
+
+// initSupportServices 初始化依赖核心服务的支撑服务。
 func initSupportServices(repo *repository.Repository) {
 	// 余额服务
 	BalanceSvc = service.NewBalanceService(repo)
@@ -144,9 +168,8 @@ func initSupportServices(repo *repository.Repository) {
 	// 支付密码服务
 	PayPasswordSvc = service.NewPayPasswordService(repo)
 
-	// 角色权限服务
-	RoleSvc = service.NewRoleService(repo)
-	_ = RoleSvc.InitDefaultRoles()
+	// 统一主体上下文服务
+	SubjectSvc = service.NewSubjectService(SessionSvc, UserSvc, RoleSvc)
 
 	// 商品图片服务
 	ProductImageSvc = service.NewProductImageService(repo)
@@ -166,6 +189,9 @@ func ensureDefaultAdmin(cfg *config.Config) {
 func initPluginService(repo *repository.Repository, cfg *config.Config) {
 	pluginRoot := service.DefaultPluginRoot(cfg.ConfigDir)
 	PluginSvc = service.NewPluginService(repo, pluginRoot)
+	PluginSvc.SetGovernanceService(GovernanceSvc)
+	PluginRuntimeSvc = service.NewPluginRuntimeService(repo, PluginSvc, GovernanceSvc)
+	HumanVerificationSvc = service.NewHumanVerificationService(PluginSvc, GovernanceSvc)
 	if _, err := PluginSvc.Refresh(context.Background()); err != nil {
 		// 插件目录为空或不可用不应阻断宿主启动，后台接口会暴露当前状态。
 		return
@@ -191,6 +217,10 @@ func initPluginService(repo *repository.Repository, cfg *config.Config) {
 			})
 		}
 		RoleSvc.SetExtraPermissions(extra)
+	}
+	if GovernanceSvc != nil {
+		_ = GovernanceSvc.RegisterPermissions(PluginSvc.PermissionDefinitionInputs())
+		_ = GovernanceSvc.SyncPluginConfigSchemas(PluginSvc.ConfigSchemas())
 	}
 }
 

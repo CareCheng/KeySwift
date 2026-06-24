@@ -161,7 +161,7 @@ func AdminAdjustBalance(c *gin.Context) {
 	operator := &service.OperatorInfo{
 		OperatorID:   adminIDVal,
 		OperatorType: "admin",
-		ClientIP:     c.ClientIP(),
+		ClientIP:     GetClientIP(c),
 	}
 
 	if err := BalanceSvc.AdjustBalance(req.UserID, req.Amount, req.Remark, operator); err != nil {
@@ -172,7 +172,7 @@ func AdminAdjustBalance(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil && adminUsername != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "调整余额", "balance", strconv.FormatUint(uint64(req.UserID), 10), req, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "调整余额", "balance", strconv.FormatUint(uint64(req.UserID), 10), req, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "调整成功"})
@@ -193,7 +193,6 @@ func AdminGetBalanceStats(c *gin.Context) {
 
 	c.JSON(200, gin.H{"success": true, "data": stats})
 }
-
 
 // ==================== 余额支付 API ====================
 
@@ -271,7 +270,7 @@ func PayOrderWithBalance(c *gin.Context) {
 	operator := &service.OperatorInfo{
 		OperatorID:   userID.(uint),
 		OperatorType: "user",
-		ClientIP:     c.ClientIP(),
+		ClientIP:     GetClientIP(c),
 	}
 
 	// 步骤1：冻结余额（原子操作）

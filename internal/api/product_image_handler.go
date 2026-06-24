@@ -76,7 +76,7 @@ func AdminUploadProductImages(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "上传商品图片", "product_image", c.Param("id"), gin.H{"filename": header.Filename}, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "上传商品图片", "product_image", c.Param("id"), gin.H{"filename": header.Filename}, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "data": image})
@@ -103,7 +103,7 @@ func AdminDeleteProductImages(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "删除商品图片", "product_image", c.Param("image_id"), nil, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "删除商品图片", "product_image", c.Param("image_id"), nil, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "删除成功"})
@@ -139,7 +139,7 @@ func AdminSetPrimaryImage(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "设置商品主图", "product_image", c.Param("id"), req, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "设置商品主图", "product_image", c.Param("id"), req, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "设置成功"})
@@ -175,7 +175,7 @@ func AdminUpdateImageOrder(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "更新图片排序", "product_image", c.Param("id"), req, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "更新图片排序", "product_image", c.Param("id"), req, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "排序更新成功"})

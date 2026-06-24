@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * 主题 token 默认值（深色）—— 与 lib/themeTokens.ts 的 DEFAULT_THEME_TOKENS 一致。
+ * iframe 无法继承宿主 CSS 变量，故自带一份兜底值；
+ * 运行时由宿主经 postMessage 下发 theme_tokens，JS 写入 :root 内联 style 覆盖默认值，
+ * 从而适配宿主任意主题（含主题插件自定义配色）。字段名固定，详见开发手册"主题 token 字典"。
+ */
+:root {
+  --bg-input: rgba(30, 41, 59, 0.5);
+  --border-color: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --text-placeholder: #475569;
+  --primary-500: #667eea;
+  --primary-ring: rgba(102, 126, 234, 0.2);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

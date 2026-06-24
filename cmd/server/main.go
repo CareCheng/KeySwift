@@ -100,6 +100,11 @@ func main() {
 
 	// 初始化服务
 	api.InitServices(cfg)
+	proxyCfg, proxyErr := api.RefreshReverseProxyRuntime()
+	if proxyErr != nil {
+		log.Printf("警告: 加载反向代理配置失败，将使用默认关闭模式: %v", proxyErr)
+		proxyCfg = nil
+	}
 
 	// 设置Gin模式
 	gin.SetMode(gin.ReleaseMode)
@@ -108,7 +113,19 @@ func main() {
 	r := gin.Default()
 
 	// 设置信任代理
-	r.SetTrustedProxies(nil)
+	trustedProxies := api.TrustedProxyListForGin()
+	if err := r.SetTrustedProxies(trustedProxies); err != nil {
+		log.Fatalf("设置可信代理失败: %v", err)
+	}
+	if proxyCfg != nil {
+		log.Printf("反向代理模式: enabled=%t, trusted_proxies=%d, public_base_url=%q, cookie_secure_mode=%s, cors_enabled=%t",
+			proxyCfg.ReverseProxyEnabled,
+			len(proxyCfg.TrustedProxies),
+			proxyCfg.PublicBaseURL,
+			proxyCfg.CookieSecureMode,
+			proxyCfg.CORSEnabled,
+		)
+	}
 
 	// 注册路由
 	api.RegisterRoutes(r, cfg)

@@ -4,9 +4,22 @@ import { useState } from 'react'
 import { Button, Card, Input, Modal, Switch } from '@/components/ui'
 import toast from 'react-hot-toast'
 import { apiGet, apiPost } from '@/lib/api'
-import { SettingsState } from './useSettingsState'
+import { DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID, SettingsState } from './useSettingsState'
 
 type SecurityForm = SettingsState['securityForm']
+type HumanVerificationTarget = 'admin' | 'user'
+
+interface HumanVerificationProviderOption {
+  provider_id: string
+  provider_type: string
+  display_name: string
+  plugin_id: string
+  enabled: boolean
+  health_status: string
+  config_status: string
+  supported_scopes: string[]
+  public_config?: Record<string, unknown>
+}
 
 const timeoutPresets = [30, 60, 120, 480, 1440]
 
@@ -19,6 +32,46 @@ function clampTimeout(value: number, fallback: number) {
 
 function formatPreset(value: number) {
   return value >= 60 ? `${value / 60}小时` : `${value}分钟`
+}
+
+function targetScopeQuery(target: HumanVerificationTarget) {
+  return target === 'admin' ? 'admin_login' : 'user_login,user_register'
+}
+
+function formatProviderName(providerID: string, options: HumanVerificationProviderOption[]) {
+  const provider = options.find((item) => item.provider_id === providerID)
+  if (provider?.display_name) return provider.display_name
+  if (providerID === DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID) return '图片人机验证'
+  if (providerID === 'cloudflare.turnstile') return 'Cloudflare Turnstile'
+  return providerID || '未配置'
+}
+
+function formatHealthStatus(value: string) {
+  switch (value) {
+    case 'ready':
+      return '可用'
+    case 'degraded':
+      return '配置待完善'
+    case 'unhealthy':
+      return '异常'
+    default:
+      return value || '未知'
+  }
+}
+
+function formatConfigStatus(value: string) {
+  switch (value) {
+    case 'ready':
+      return '配置完整'
+    case 'missing_config':
+      return '配置缺失'
+    default:
+      return value || '未知'
+  }
+}
+
+function providerReady(provider?: HumanVerificationProviderOption | null) {
+  return Boolean(provider?.enabled && provider.health_status === 'ready' && provider.config_status === 'ready')
 }
 
 function SettingRow({
@@ -94,6 +147,9 @@ export function LoginSettings({ state }: { state: SettingsState }) {
   const [showAdminAccountModal, setShowAdminAccountModal] = useState(false)
   const [showAdminTotpModal, setShowAdminTotpModal] = useState(false)
   const [showUserAdvancedModal, setShowUserAdvancedModal] = useState(false)
+  const [providerModalTarget, setProviderModalTarget] = useState<HumanVerificationTarget | null>(null)
+  const [providerOptions, setProviderOptions] = useState<HumanVerificationProviderOption[]>([])
+  const [loadingProviders, setLoadingProviders] = useState(false)
   const [modalUsername, setModalUsername] = useState('')
   const [modalPassword, setModalPassword] = useState('')
   const [totpTestCode, setTotpTestCode] = useState('')
@@ -104,14 +160,118 @@ export function LoginSettings({ state }: { state: SettingsState }) {
     setSecurityForm((prev) => ({ ...prev, ...patch }))
   }
 
+  const loadHumanVerificationProviders = async (target: HumanVerificationTarget) => {
+    setLoadingProviders(true)
+    const query = new URLSearchParams({ scope: targetScopeQuery(target) })
+    const res = await apiGet<{ providers: HumanVerificationProviderOption[] }>(
+      `/api/admin/human-verification/providers?${query.toString()}`
+    )
+    setLoadingProviders(false)
+    if (!res.success) {
+      toast.error(res.error || '加载人机验证插件失败')
+      setProviderOptions([])
+      return []
+    }
+    const providers = res.providers || []
+    setProviderOptions(providers)
+    return providers
+  }
+
+  const openHumanVerificationModal = async (target: HumanVerificationTarget) => {
+    setProviderModalTarget(target)
+    await loadHumanVerificationProviders(target)
+  }
+
+  const selectedProviderID = providerModalTarget === 'admin'
+    ? securityForm.admin_human_verification_provider_id
+    : securityForm.user_login_human_verification_provider_id
+
+  const selectedProvider = providerOptions.find((item) => item.provider_id === selectedProviderID)
+
+  const applyProviderSelection = (provider: HumanVerificationProviderOption) => {
+    if (!providerModalTarget) return
+    if (providerModalTarget === 'admin') {
+      updateForm({ admin_human_verification_provider_id: provider.provider_id })
+    } else {
+      updateForm({
+        user_login_human_verification_provider_id: provider.provider_id,
+        user_register_human_verification_provider_id: provider.provider_id,
+        user_register_human_verification_follow_login: true,
+      })
+    }
+    setProviderModalTarget(null)
+    toast.success('人机验证类型已写入待保存表单')
+  }
+
+  const ensureReadyProvider = async (target: HumanVerificationTarget) => {
+    const providers = await loadHumanVerificationProviders(target)
+    if (providers.length === 0) {
+      toast.error('请先安装并启用至少一个人机验证插件')
+      return null
+    }
+    const currentID = target === 'admin'
+      ? securityForm.admin_human_verification_provider_id
+      : securityForm.user_login_human_verification_provider_id
+    const provider = providers.find((item) => item.provider_id === currentID) || providers[0]
+    if (!providerReady(provider)) {
+      updateProviderID(target, provider.provider_id)
+      toast.error('当前人机验证插件配置不完整或不可用，请先完成插件配置')
+      return null
+    }
+    return provider
+  }
+
+  const updateProviderID = (target: HumanVerificationTarget, providerID: string) => {
+    if (target === 'admin') {
+      updateForm({ admin_human_verification_provider_id: providerID })
+      return
+    }
+    updateForm({
+      user_login_human_verification_provider_id: providerID,
+      user_register_human_verification_provider_id: providerID,
+      user_register_human_verification_follow_login: true,
+    })
+  }
+
+  const handleHumanVerificationToggle = async (target: HumanVerificationTarget, checked: boolean) => {
+    if (!checked) {
+      if (target === 'admin') {
+        updateForm({ admin_human_verification_enabled: false })
+      } else {
+        updateForm({
+          user_login_human_verification_enabled: false,
+          user_register_human_verification_enabled: false,
+        })
+      }
+      return
+    }
+
+    const provider = await ensureReadyProvider(target)
+    if (!provider) return
+    if (target === 'admin') {
+      updateForm({
+        admin_human_verification_enabled: true,
+        admin_human_verification_provider_id: provider.provider_id,
+      })
+      return
+    }
+    updateForm({
+      user_login_human_verification_enabled: true,
+      user_login_human_verification_provider_id: provider.provider_id,
+      user_register_human_verification_enabled: true,
+      user_register_human_verification_provider_id: provider.provider_id,
+      user_register_human_verification_follow_login: true,
+    })
+  }
+
   const handleAdminLoginToggle = (checked: boolean) => {
     if (checked) {
-      updateForm({ enable_login: true, enable_captcha: true, enable_session_timeout: true })
+      updateForm({ enable_login: true, enable_session_timeout: true })
       return
     }
     updateForm({
       enable_login: false,
-      enable_captcha: false,
+      admin_human_verification_enabled: false,
       enable_2fa: false,
       enable_session_timeout: false,
     })
@@ -126,7 +286,7 @@ export function LoginSettings({ state }: { state: SettingsState }) {
 
   const handleUserRegisterToggle = (checked: boolean) => {
     if (checked) {
-      updateForm({ user_allow_register: true, user_enable_captcha: true, user_enable_session_timeout: true })
+      updateForm({ user_allow_register: true, user_enable_session_timeout: true })
       return
     }
     updateForm({
@@ -200,6 +360,9 @@ export function LoginSettings({ state }: { state: SettingsState }) {
     return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(uri)}`
   }
 
+  const userHumanVerificationEnabled = securityForm.user_login_human_verification_enabled
+    && securityForm.user_register_human_verification_enabled
+
   return (
     <div className="space-y-6">
       <Card title="登录设置">
@@ -207,7 +370,7 @@ export function LoginSettings({ state }: { state: SettingsState }) {
           <div className="space-y-3">
             <div>
               <h3 className="text-base font-semibold text-dark-100">后台管理登录</h3>
-              <p className="mt-1 text-sm text-dark-500">控制管理后台入口的登录验证、图形验证码、二步验证和会话有效期。</p>
+              <p className="mt-1 text-sm text-dark-500">控制管理后台入口的登录验证、人机验证、二步验证和会话有效期。</p>
             </div>
 
             <SettingRow
@@ -229,12 +392,18 @@ export function LoginSettings({ state }: { state: SettingsState }) {
 
             {securityForm.enable_login ? (
               <div className="ml-4 space-y-3 border-l-2 border-primary-500/30 pl-4">
-                <SettingRow>
+                <SettingRow
+                  action={
+                    <Button variant="secondary" size="sm" onClick={() => openHumanVerificationModal('admin')}>
+                      <i className="fas fa-sliders-h" /> 配置
+                    </Button>
+                  }
+                >
                   <Switch
-                    checked={securityForm.enable_captcha}
-                    onChange={(checked) => updateForm({ enable_captcha: checked })}
-                    label="登录图形验证码"
-                    description="登录时必须输入图形验证码，降低暴力破解风险"
+                    checked={securityForm.admin_human_verification_enabled}
+                    onChange={(checked) => void handleHumanVerificationToggle('admin', checked)}
+                    label="登录人机验证"
+                    description={`登录时需要完成人机验证，当前类型：${formatProviderName(securityForm.admin_human_verification_provider_id, providerOptions)}`}
                   />
                 </SettingRow>
 
@@ -282,7 +451,7 @@ export function LoginSettings({ state }: { state: SettingsState }) {
           <div className="space-y-3">
             <div>
               <h3 className="text-base font-semibold text-dark-100">用户侧登录与注册</h3>
-              <p className="mt-1 text-sm text-dark-500">主页面只保留注册、图形验证码和 TOTP 开关，更多策略通过高级配置维护。</p>
+              <p className="mt-1 text-sm text-dark-500">主页面保留注册、人机验证和 TOTP 开关，更多策略通过高级配置维护。</p>
             </div>
 
             <SettingRow
@@ -300,12 +469,18 @@ export function LoginSettings({ state }: { state: SettingsState }) {
               />
             </SettingRow>
 
-            <SettingRow>
+            <SettingRow
+              action={
+                <Button variant="secondary" size="sm" onClick={() => openHumanVerificationModal('user')}>
+                  <i className="fas fa-sliders-h" /> 配置
+                </Button>
+              }
+            >
               <Switch
-                checked={securityForm.user_enable_captcha}
-                onChange={(checked) => updateForm({ user_enable_captcha: checked })}
-                label="图形验证码"
-                description="用户登录和注册时要求输入图形验证码"
+                checked={userHumanVerificationEnabled}
+                onChange={(checked) => void handleHumanVerificationToggle('user', checked)}
+                label="用户人机验证"
+                description={`用户登录和注册时要求完成人机验证，当前类型：${formatProviderName(securityForm.user_login_human_verification_provider_id, providerOptions)}`}
               />
             </SettingRow>
 
@@ -335,6 +510,85 @@ export function LoginSettings({ state }: { state: SettingsState }) {
           </Button>
         </div>
       </Card>
+
+      <Modal
+        isOpen={Boolean(providerModalTarget)}
+        onClose={() => setProviderModalTarget(null)}
+        title="配置人机验证"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg bg-dark-900/30 p-3 text-sm text-dark-400">
+            {providerModalTarget === 'admin'
+              ? '当前配置用于管理端登录。'
+              : '当前配置用于用户登录与用户注册，所选插件必须同时支持这两个场景。'}
+          </div>
+
+          {loadingProviders ? (
+            <div className="py-8 text-center text-dark-400">
+              <i className="fas fa-spinner fa-spin mr-2" />
+              正在加载可用人机验证插件...
+            </div>
+          ) : providerOptions.length === 0 ? (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-5 text-sm text-amber-200">
+              <div className="font-medium">未安装任何可用的人机验证插件</div>
+              <p className="mt-2 text-amber-200/80">
+                请先到插件管理中安装并启用人机验证插件，然后再开启此开关。
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {providerOptions.map((provider) => {
+                const selected = provider.provider_id === selectedProviderID
+                const ready = providerReady(provider)
+                return (
+                  <button
+                    key={provider.provider_id}
+                    type="button"
+                    onClick={() => applyProviderSelection(provider)}
+                    className={`w-full rounded-xl border p-4 text-left transition-colors ${
+                      selected
+                        ? 'border-primary-500/70 bg-primary-500/10'
+                        : 'border-dark-700/70 bg-dark-900/30 hover:border-dark-600'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-dark-100">{provider.display_name || provider.provider_id}</span>
+                          {selected && <span className="rounded bg-primary-500/20 px-2 py-0.5 text-xs text-primary-200">当前选择</span>}
+                          <span className={`rounded px-2 py-0.5 text-xs ${ready ? 'bg-emerald-500/20 text-emerald-200' : 'bg-amber-500/20 text-amber-200'}`}>
+                            {ready ? '可开启' : '需配置'}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-xs text-dark-500">插件 ID：{provider.plugin_id || provider.provider_id}</div>
+                      </div>
+                      <div className="text-xs text-dark-400 md:text-right">
+                        <div>类型：{provider.provider_type || '-'}</div>
+                        <div>健康：{formatHealthStatus(provider.health_status)}</div>
+                        <div>配置：{formatConfigStatus(provider.config_status)}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 text-xs text-dark-500">
+                      支持范围：{(provider.supported_scopes || []).join('、') || '-'}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {selectedProvider && !providerReady(selectedProvider) && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-200">
+              当前选择的人机验证插件暂不能开启，请先在插件管理中补齐配置或恢复插件状态。
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 border-t border-dark-700/50 pt-4">
+            <Button variant="secondary" onClick={() => setProviderModalTarget(null)}>关闭</Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={showAdminAccountModal}
@@ -474,7 +728,7 @@ export function LoginSettings({ state }: { state: SettingsState }) {
             <div className="mb-1 font-medium text-dark-200">当前策略摘要</div>
             <p>
               注册：{securityForm.user_allow_register ? '开放' : '关闭'}；
-              图形验证码：{securityForm.user_enable_captcha ? '启用' : '关闭'}；
+              人机验证：{userHumanVerificationEnabled ? '启用' : '关闭'}；
               TOTP：{securityForm.user_enable_2fa ? '允许用户启用' : '禁止用户启用'}。
             </p>
           </div>

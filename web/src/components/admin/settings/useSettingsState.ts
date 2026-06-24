@@ -5,6 +5,13 @@ import { apiGet, apiPost } from '@/lib/api'
 import { Settings } from '../types'
 
 /**
+ * 默认人机验证 provider ID。
+ * 与后端 service.DefaultHumanVerificationProviderID 保持一致，
+ * 作为前端各处 provider 兜底值的单一来源，避免多处硬编码不同步。
+ */
+export const DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID = 'keyswift.image_captcha'
+
+/**
  * 基本设置 / 登录设置 / 安全设置 共享的数据状态。
  *
  * 后端 AdminSaveSecuritySettings 接口为全量覆盖式保存：
@@ -17,7 +24,8 @@ export interface SettingsState {
   basicForm: { system_title: string; admin_suffix: string; server_port: string }
   securityForm: {
     enable_login: boolean
-    enable_captcha: boolean
+    admin_human_verification_enabled: boolean
+    admin_human_verification_provider_id: string
     admin_username: string
     admin_password: string
     enable_2fa: boolean
@@ -25,7 +33,11 @@ export interface SettingsState {
     enable_session_timeout: boolean
     session_timeout: number
     user_allow_register: boolean
-    user_enable_captcha: boolean
+    user_login_human_verification_enabled: boolean
+    user_login_human_verification_provider_id: string
+    user_register_human_verification_enabled: boolean
+    user_register_human_verification_provider_id: string
+    user_register_human_verification_follow_login: boolean
     user_enable_2fa: boolean
     user_require_email_verification: boolean
     user_enable_session_timeout: boolean
@@ -45,7 +57,8 @@ export function useSettingsState(): SettingsState {
   const [basicForm, setBasicForm] = useState({ system_title: '', admin_suffix: 'manage', server_port: '8080' })
   const [securityForm, setSecurityForm] = useState({
     enable_login: true,
-    enable_captcha: true,
+    admin_human_verification_enabled: false,
+    admin_human_verification_provider_id: DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID,
     admin_username: 'admin',
     admin_password: '',
     enable_2fa: false,
@@ -53,7 +66,11 @@ export function useSettingsState(): SettingsState {
     enable_session_timeout: true,
     session_timeout: 60,
     user_allow_register: true,
-    user_enable_captcha: true,
+    user_login_human_verification_enabled: false,
+    user_login_human_verification_provider_id: DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID,
+    user_register_human_verification_enabled: false,
+    user_register_human_verification_provider_id: DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID,
+    user_register_human_verification_follow_login: true,
     user_enable_2fa: true,
     user_require_email_verification: false,
     user_enable_session_timeout: true,
@@ -70,7 +87,8 @@ export function useSettingsState(): SettingsState {
       })
       setSecurityForm({
         enable_login: res.settings.enable_login,
-        enable_captcha: res.settings.enable_captcha ?? true,
+        admin_human_verification_enabled: res.settings.admin_human_verification_enabled ?? false,
+        admin_human_verification_provider_id: res.settings.admin_human_verification_provider_id || DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID,
         admin_username: res.settings.admin_username || 'admin',
         admin_password: '',
         enable_2fa: res.settings.enable_2fa,
@@ -78,7 +96,11 @@ export function useSettingsState(): SettingsState {
         enable_session_timeout: res.settings.enable_session_timeout ?? true,
         session_timeout: res.settings.session_timeout || 60,
         user_allow_register: res.settings.user_allow_register ?? true,
-        user_enable_captcha: res.settings.user_enable_captcha ?? true,
+        user_login_human_verification_enabled: res.settings.user_login_human_verification_enabled ?? false,
+        user_login_human_verification_provider_id: res.settings.user_login_human_verification_provider_id || DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID,
+        user_register_human_verification_enabled: res.settings.user_register_human_verification_enabled ?? false,
+        user_register_human_verification_provider_id: res.settings.user_register_human_verification_provider_id || DEFAULT_HUMAN_VERIFICATION_PROVIDER_ID,
+        user_register_human_verification_follow_login: res.settings.user_register_human_verification_follow_login ?? true,
         user_enable_2fa: res.settings.user_enable_2fa ?? true,
         user_require_email_verification: res.settings.user_require_email_verification ?? false,
         user_enable_session_timeout: res.settings.user_enable_session_timeout ?? true,
@@ -116,14 +138,19 @@ export function useSettingsState(): SettingsState {
     // 全量提交：登录设置与安全设置字段一起发送，避免后端覆盖式保存导致另一页配置丢失
     const data: Record<string, unknown> = {
       enable_login: securityForm.enable_login,
-      enable_captcha: securityForm.enable_captcha,
+      admin_human_verification_enabled: securityForm.admin_human_verification_enabled,
+      admin_human_verification_provider_id: securityForm.admin_human_verification_provider_id,
       admin_username: securityForm.admin_username.trim() || 'admin',
       enable_2fa: securityForm.enable_2fa,
       totp_secret: securityForm.totp_secret,
       enable_session_timeout: securityForm.enable_session_timeout,
       session_timeout: securityForm.session_timeout,
       user_allow_register: securityForm.user_allow_register,
-      user_enable_captcha: securityForm.user_enable_captcha,
+      user_login_human_verification_enabled: securityForm.user_login_human_verification_enabled,
+      user_login_human_verification_provider_id: securityForm.user_login_human_verification_provider_id,
+      user_register_human_verification_enabled: securityForm.user_register_human_verification_enabled,
+      user_register_human_verification_provider_id: securityForm.user_register_human_verification_provider_id,
+      user_register_human_verification_follow_login: securityForm.user_register_human_verification_follow_login,
       user_enable_2fa: securityForm.user_enable_2fa,
       user_require_email_verification: securityForm.user_require_email_verification,
       user_enable_session_timeout: securityForm.user_enable_session_timeout,

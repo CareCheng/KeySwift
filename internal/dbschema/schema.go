@@ -25,7 +25,10 @@ const (
 	BootstrapSchemaKey     = "bootstrap"
 	BootstrapSchemaVersion = "2026.06.20.1"
 	MainSchemaKey          = "main"
-	MainSchemaVersion      = "2026.06.22.1"
+	MainSchemaVersion      = "2026.06.23.1"
+	SchemaRevisionTable    = "schema_revisions"
+	SchemaDirectionBase    = "baseline"
+	SchemaStatusApplied    = "applied"
 )
 
 // Metadata 是配置库和主库共用的 schema 元数据结构。
@@ -36,18 +39,35 @@ type Metadata struct {
 	AppVersion     string
 }
 
+// Revision 记录一次当前基线结构变更，用于启动时校验 schema 文件和数据库记录一致。
+type Revision struct {
+	SchemaKey string
+	Version   string
+	Direction string
+	Checksum  string
+	Status    string
+}
+
 // ValidateBootstrapSchema 校验配置库结构元数据。
 func ValidateBootstrapSchema(db *gorm.DB) error {
-	return ValidateSchema(db, "bootstrap_schema_metadata", BootstrapSchemaKey, BootstrapSchemaVersion)
+	_, checksum, err := ReadEmbeddedSQL("bootstrap/sqlite/schema.sql")
+	if err != nil {
+		return err
+	}
+	return ValidateSchema(db, "bootstrap_schema_metadata", BootstrapSchemaKey, BootstrapSchemaVersion, checksum)
 }
 
 // ValidateMainSchema 校验主业务库结构元数据。
 func ValidateMainSchema(db *gorm.DB) error {
-	return ValidateSchema(db, "schema_metadata", MainSchemaKey, MainSchemaVersion)
+	_, checksum, err := ReadEmbeddedSQL("main/sqlite/schema.sql")
+	if err != nil {
+		return err
+	}
+	return ValidateSchema(db, "schema_metadata", MainSchemaKey, MainSchemaVersion, checksum)
 }
 
 // ValidateSchema 只读取结构元数据，不创建、不迁移、不补偿。
-func ValidateSchema(db *gorm.DB, metadataTable, schemaKey, expectedVersion string) error {
+func ValidateSchema(db *gorm.DB, metadataTable, schemaKey, expectedVersion, expectedChecksum string) error {
 	if db == nil {
 		return errors.New("数据库连接为空")
 	}
@@ -71,6 +91,37 @@ func ValidateSchema(db *gorm.DB, metadataTable, schemaKey, expectedVersion strin
 	}
 	if strings.TrimSpace(metadata.SchemaChecksum) == "" {
 		return errors.New("数据库结构 checksum 为空")
+	}
+	if strings.TrimSpace(expectedChecksum) != "" && metadata.SchemaChecksum != expectedChecksum {
+		return fmt.Errorf("数据库结构 checksum 不匹配: 当前 %s，程序需要 %s", metadata.SchemaChecksum, expectedChecksum)
+	}
+	if err := ValidateSchemaRevision(db, schemaKey, expectedVersion, expectedChecksum); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidateSchemaRevision 校验当前基线结构变更记录，不创建、不迁移、不补偿。
+func ValidateSchemaRevision(db *gorm.DB, schemaKey, expectedVersion, expectedChecksum string) error {
+	var revision Revision
+	query := fmt.Sprintf(
+		"SELECT schema_key, version, direction, checksum, status FROM %s WHERE schema_key = ? AND version = ? AND direction = ? LIMIT 1",
+		SchemaRevisionTable,
+	)
+	if err := db.Raw(query, schemaKey, expectedVersion, SchemaDirectionBase).Scan(&revision).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return fmt.Errorf("数据库已存在但缺少 %s 结构变更记录，可能是旧库或非当前基线库；请删除对应数据库文件后重启，程序会按当前基线重新创建", schemaKey)
+		}
+		return fmt.Errorf("读取数据库结构变更记录失败: %w", err)
+	}
+	if strings.TrimSpace(revision.SchemaKey) == "" {
+		return fmt.Errorf("数据库已存在但缺少 %s 当前基线结构变更记录；请删除对应数据库文件后重启，程序会按当前基线重新创建", schemaKey)
+	}
+	if revision.Status != SchemaStatusApplied {
+		return fmt.Errorf("数据库结构变更记录状态不正确: 当前 %s，程序需要 %s", revision.Status, SchemaStatusApplied)
+	}
+	if strings.TrimSpace(expectedChecksum) != "" && revision.Checksum != expectedChecksum {
+		return fmt.Errorf("数据库结构变更记录 checksum 不匹配: 当前 %s，程序需要 %s", revision.Checksum, expectedChecksum)
 	}
 	return nil
 }
@@ -211,7 +262,36 @@ func ApplySQLiteSchemaContent(db *gorm.DB, options ApplyContentOptions) (string,
 	if err := db.Exec(statement, options.SchemaKey, options.SchemaVersion, checksum, options.AppVersion).Error; err != nil {
 		return "", fmt.Errorf("写入 schema 元数据失败: %w", err)
 	}
+	if err := recordSchemaRevision(db, options, checksum); err != nil {
+		return "", err
+	}
 	return checksum, nil
+}
+
+func recordSchemaRevision(db *gorm.DB, options ApplyContentOptions, checksum string) error {
+	statement := fmt.Sprintf(`INSERT INTO %s
+		(schema_key, version, name, direction, checksum, status, app_version, started_at, finished_at, error_message, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(schema_key, version, direction) DO UPDATE SET
+			name = excluded.name,
+			checksum = excluded.checksum,
+			status = excluded.status,
+			app_version = excluded.app_version,
+			finished_at = CURRENT_TIMESTAMP,
+			error_message = '',
+			updated_at = CURRENT_TIMESTAMP`, SchemaRevisionTable)
+	if err := db.Exec(statement,
+		options.SchemaKey,
+		options.SchemaVersion,
+		options.SchemaKey+" current baseline",
+		SchemaDirectionBase,
+		checksum,
+		SchemaStatusApplied,
+		options.AppVersion,
+	).Error; err != nil {
+		return fmt.Errorf("写入 schema 变更记录失败: %w", err)
+	}
+	return nil
 }
 
 // SQLChecksum 计算 SQL 内容 SHA-256 指纹。

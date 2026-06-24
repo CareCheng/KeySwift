@@ -55,7 +55,7 @@ func AdminCreateCategory(c *gin.Context) {
 
 	// 记录操作日志
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(c.GetString("admin_username"), "create", "category", strconv.Itoa(int(category.ID)), req.Name, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(c.GetString("admin_username"), "create", "category", strconv.Itoa(int(category.ID)), req.Name, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "category": category})
@@ -91,7 +91,7 @@ func AdminUpdateCategory(c *gin.Context) {
 
 	// 记录操作日志
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(c.GetString("admin_username"), "update", "category", idStr, req.Name, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(c.GetString("admin_username"), "update", "category", idStr, req.Name, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "category": category})
@@ -114,7 +114,7 @@ func AdminDeleteCategory(c *gin.Context) {
 
 	// 记录操作日志
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(c.GetString("admin_username"), "delete", "category", idStr, "", c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(c.GetString("admin_username"), "delete", "category", idStr, "", GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "分类已删除"})
@@ -330,7 +330,7 @@ func AdminRemoveFromBlacklist(c *gin.Context) {
 	if RemoveFromBlacklist(ip) {
 		// 记录操作日志
 		if LogSvc != nil {
-			LogSvc.LogAdminActionSimple("admin", "remove_blacklist", "blacklist", ip, "移除IP黑名单: "+ip, c.ClientIP(), c.GetHeader("User-Agent"))
+			LogSvc.LogAdminActionSimple("admin", "remove_blacklist", "blacklist", ip, "移除IP黑名单: "+ip, GetClientIP(c), c.GetHeader("User-Agent"))
 		}
 		c.JSON(200, gin.H{"success": true, "message": "已从黑名单中移除"})
 	} else {
@@ -344,7 +344,7 @@ func AdminClearBlacklist(c *gin.Context) {
 
 	// 记录操作日志
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple("admin", "clear_blacklist", "blacklist", "", "清空IP黑名单", c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple("admin", "clear_blacklist", "blacklist", "", "清空IP黑名单", GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{
@@ -408,7 +408,7 @@ func AdminSaveWhitelist(c *gin.Context) {
 		} else {
 			detail += "（已禁用）"
 		}
-		LogSvc.LogAdminActionSimple(c.GetString("admin_username"), action, "whitelist", "", detail, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(c.GetString("admin_username"), action, "whitelist", "", detail, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{

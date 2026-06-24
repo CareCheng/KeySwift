@@ -5,6 +5,15 @@ import { Button, Card, Input, Modal } from '@/components/ui'
 import { apiGet } from '@/lib/api'
 import { Order } from './types'
 
+interface OrderTrace {
+  items?: Array<{ id: number; product_ref: string; quantity: number; unit_price_cents: number; owner_plugin_id: string }>
+  payment_attempts?: Array<{ id: number; attempt_no: string; payment_plugin_id: string; payment_channel: string; amount_cents: number; status: string; provider_transaction_id: string }>
+  payment_callbacks?: Array<{ id: number; callback_id: string; provider_transaction_id: string; provider_status: string; amount_cents: number; verified: boolean; status: string; error_message: string; received_at: string }>
+  deliveries?: Array<{ id: number; delivery_no: string; fulfillment_plugin_id: string; delivery_type: string; status: string; error_message: string; delivered_at?: string }>
+  delivery_facts?: Array<{ id: number; fact_id: string; delivery_no: string; fulfillment_plugin_id: string; fact_type: string; status: string; error_message: string; occurred_at: string }>
+  state_events?: Array<{ id: number; event_type: string; from_status: string; to_status: string; payment_status: string; delivery_status: string; owner_plugin_id: string; created_at: string }>
+}
+
 /**
  * 订单管理页面
  * 支持移动端响应式布局
@@ -17,6 +26,8 @@ export function OrdersPage() {
   const [search, setSearch] = useState('')
   const [showDetailModal, setShowDetailModal] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [selectedTrace, setSelectedTrace] = useState<OrderTrace | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
 
   const loadOrders = useCallback(async () => {
     setLoading(true)
@@ -48,9 +59,17 @@ export function OrdersPage() {
     loadOrders()
   }
 
-  const viewDetail = (order: Order) => {
+  const viewDetail = async (order: Order) => {
     setSelectedOrder(order)
+    setSelectedTrace(null)
     setShowDetailModal(true)
+    setDetailLoading(true)
+    const res = await apiGet<{ order: Order; trace?: OrderTrace }>(`/api/admin/order/${order.id}`)
+    if (res.success) {
+      setSelectedOrder(res.order || order)
+      setSelectedTrace(res.trace || null)
+    }
+    setDetailLoading(false)
   }
 
   if (loading && orders.length === 0) return <div className="text-center py-12"><i className="fas fa-spinner fa-spin text-2xl text-primary-400" /></div>
@@ -170,6 +189,11 @@ export function OrdersPage() {
       <Modal isOpen={showDetailModal} onClose={() => setShowDetailModal(false)} title="订单详情">
         {selectedOrder && (
           <div className="space-y-4">
+            {detailLoading && (
+              <div className="rounded-lg bg-dark-700/40 p-3 text-sm text-dark-400">
+                <i className="fas fa-spinner fa-spin mr-2" />正在加载订单追踪信息
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div className="flex flex-col sm:flex-row sm:items-center gap-1">
                 <span className="text-dark-500">订单号：</span>
@@ -210,12 +234,155 @@ export function OrdersPage() {
                 <pre className="mt-2 p-3 bg-dark-700 rounded text-dark-100 text-sm whitespace-pre-wrap break-all">{selectedOrder.card_info}</pre>
               </div>
             )}
+            {selectedTrace && (
+              <OrderTracePanel trace={selectedTrace} />
+            )}
             <div className="flex justify-end pt-4">
               <Button variant="secondary" onClick={() => setShowDetailModal(false)}>关闭</Button>
             </div>
           </div>
         )}
       </Modal>
+    </div>
+  )
+}
+
+function OrderTracePanel({ trace }: { trace: OrderTrace }) {
+  const hasTrace = Boolean(
+    (trace.items && trace.items.length > 0)
+    || (trace.payment_attempts && trace.payment_attempts.length > 0)
+    || (trace.payment_callbacks && trace.payment_callbacks.length > 0)
+    || (trace.deliveries && trace.deliveries.length > 0)
+    || (trace.delivery_facts && trace.delivery_facts.length > 0)
+    || (trace.state_events && trace.state_events.length > 0),
+  )
+
+  if (!hasTrace) {
+    return (
+      <div className="rounded-lg border border-dark-700 bg-dark-800/40 p-4 text-sm text-dark-500">
+        暂无订单追踪记录。
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4 border-t border-dark-700 pt-4">
+      <h3 className="text-sm font-medium text-dark-100">订单追踪</h3>
+
+      {trace.items && trace.items.length > 0 && (
+        <TraceSection title="订单明细">
+          {trace.items.map((item) => (
+            <TraceCard key={item.id}>
+              <TraceLine label="商品引用" value={item.product_ref || '-'} />
+              <TraceLine label="数量" value={String(item.quantity || 0)} />
+              <TraceLine label="单价" value={`¥${((item.unit_price_cents || 0) / 100).toFixed(2)}`} />
+              <TraceLine label="归属插件" value={item.owner_plugin_id || '宿主'} />
+            </TraceCard>
+          ))}
+        </TraceSection>
+      )}
+
+      {trace.payment_attempts && trace.payment_attempts.length > 0 && (
+        <TraceSection title="支付尝试">
+          {trace.payment_attempts.map((attempt) => (
+            <TraceCard key={attempt.id}>
+              <TraceLine label="尝试号" value={attempt.attempt_no || '-'} />
+              <TraceLine label="支付方" value={attempt.payment_plugin_id || '-'} />
+              <TraceLine label="渠道" value={attempt.payment_channel || '-'} />
+              <TraceLine label="金额" value={`¥${((attempt.amount_cents || 0) / 100).toFixed(2)}`} />
+              <TraceLine label="状态" value={attempt.status || '-'} />
+              <TraceLine label="交易号" value={attempt.provider_transaction_id || '-'} />
+            </TraceCard>
+          ))}
+        </TraceSection>
+      )}
+
+      {trace.payment_callbacks && trace.payment_callbacks.length > 0 && (
+        <TraceSection title="支付回调">
+          {trace.payment_callbacks.map((callback) => (
+            <TraceCard key={callback.id}>
+              <TraceLine label="回调号" value={callback.callback_id || '-'} />
+              <TraceLine label="交易号" value={callback.provider_transaction_id || '-'} />
+              <TraceLine label="渠道状态" value={callback.provider_status || '-'} />
+              <TraceLine label="金额" value={`¥${((callback.amount_cents || 0) / 100).toFixed(2)}`} />
+              <TraceLine label="验证" value={callback.verified ? '已验证' : '未验证'} />
+              <TraceLine label="状态" value={callback.status || '-'} />
+              <TraceLine label="错误" value={callback.error_message || '-'} />
+            </TraceCard>
+          ))}
+        </TraceSection>
+      )}
+
+      {trace.deliveries && trace.deliveries.length > 0 && (
+        <TraceSection title="交付任务">
+          {trace.deliveries.map((delivery) => (
+            <TraceCard key={delivery.id}>
+              <TraceLine label="交付号" value={delivery.delivery_no || '-'} />
+              <TraceLine label="交付方" value={delivery.fulfillment_plugin_id || '-'} />
+              <TraceLine label="类型" value={delivery.delivery_type || '-'} />
+              <TraceLine label="状态" value={delivery.status || '-'} />
+              <TraceLine label="完成时间" value={delivery.delivered_at || '-'} />
+              <TraceLine label="错误" value={delivery.error_message || '-'} />
+            </TraceCard>
+          ))}
+        </TraceSection>
+      )}
+
+      {trace.delivery_facts && trace.delivery_facts.length > 0 && (
+        <TraceSection title="交付事实">
+          {trace.delivery_facts.map((fact) => (
+            <TraceCard key={fact.id}>
+              <TraceLine label="事实号" value={fact.fact_id || '-'} />
+              <TraceLine label="交付号" value={fact.delivery_no || '-'} />
+              <TraceLine label="交付方" value={fact.fulfillment_plugin_id || '-'} />
+              <TraceLine label="事实类型" value={fact.fact_type || '-'} />
+              <TraceLine label="状态" value={fact.status || '-'} />
+              <TraceLine label="错误" value={fact.error_message || '-'} />
+            </TraceCard>
+          ))}
+        </TraceSection>
+      )}
+
+      {trace.state_events && trace.state_events.length > 0 && (
+        <TraceSection title="状态事件">
+          {trace.state_events.map((event) => (
+            <TraceCard key={event.id}>
+              <TraceLine label="事件" value={event.event_type || '-'} />
+              <TraceLine label="状态流转" value={`${event.from_status || '-'} → ${event.to_status || '-'}`} />
+              <TraceLine label="支付状态" value={event.payment_status || '-'} />
+              <TraceLine label="交付状态" value={event.delivery_status || '-'} />
+              <TraceLine label="归属插件" value={event.owner_plugin_id || '宿主'} />
+              <TraceLine label="时间" value={event.created_at || '-'} />
+            </TraceCard>
+          ))}
+        </TraceSection>
+      )}
+    </div>
+  )
+}
+
+function TraceSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div className="text-xs font-medium text-dark-400">{title}</div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  )
+}
+
+function TraceCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="grid gap-2 rounded-lg border border-dark-700 bg-dark-800/40 p-3 text-xs sm:grid-cols-2">
+      {children}
+    </div>
+  )
+}
+
+function TraceLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[4.5rem_1fr] gap-2">
+      <span className="text-dark-500">{label}</span>
+      <span className="break-all text-dark-300">{value || '-'}</span>
     </div>
   )
 }

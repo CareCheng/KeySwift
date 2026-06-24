@@ -155,11 +155,10 @@ func AdminLogin(c *gin.Context) {
 	if !model.DBConnected {
 		// 数据库未连接时使用配置文件中的管理员账号
 		var req struct {
-			Username    string `json:"username" binding:"required"`
-			Password    string `json:"password" binding:"required"`
-			CaptchaID   string `json:"captcha_id"`
-			CaptchaCode string `json:"captcha_code"`
-			Remember    bool   `json:"remember"`
+			Username          string                            `json:"username" binding:"required"`
+			Password          string                            `json:"password" binding:"required"`
+			HumanVerification *service.HumanVerificationPayload `json:"human_verification"`
+			Remember          bool                              `json:"remember"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -167,16 +166,8 @@ func AdminLogin(c *gin.Context) {
 			return
 		}
 
-		// 按后台配置决定是否强制校验图形验证码。
-		if config.GlobalConfig.ServerConfig.EnableCaptcha {
-			if req.CaptchaID == "" || req.CaptchaCode == "" {
-				c.JSON(400, gin.H{"success": false, "error": "请输入验证码"})
-				return
-			}
-			if !VerifyCaptchaCode(req.CaptchaID, req.CaptchaCode) {
-				c.JSON(400, gin.H{"success": false, "error": "验证码错误"})
-				return
-			}
+		if !verifyHumanVerificationForRequest(c, service.HumanScopeAdminLogin, req.HumanVerification) {
+			return
 		}
 
 		cfg := config.GlobalConfig
@@ -191,7 +182,7 @@ func AdminLogin(c *gin.Context) {
 			return
 		}
 		sessionDuration, cookieMaxAge := adminSessionPolicy(req.Remember)
-		sessionID, err := SessionSvc.CreateAdminSessionWithDuration(req.Username, "super_admin", c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
+		sessionID, err := SessionSvc.CreateAdminSessionWithDuration(req.Username, "super_admin", GetClientIP(c), c.GetHeader("User-Agent"), sessionDuration)
 		if err != nil {
 			c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 			return
@@ -224,11 +215,10 @@ func AdminLogin(c *gin.Context) {
 	}
 
 	var req struct {
-		Username    string `json:"username" binding:"required"`
-		Password    string `json:"password" binding:"required"`
-		CaptchaID   string `json:"captcha_id"`
-		CaptchaCode string `json:"captcha_code"`
-		Remember    bool   `json:"remember"`
+		Username          string                            `json:"username" binding:"required"`
+		Password          string                            `json:"password" binding:"required"`
+		HumanVerification *service.HumanVerificationPayload `json:"human_verification"`
+		Remember          bool                              `json:"remember"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -236,16 +226,8 @@ func AdminLogin(c *gin.Context) {
 		return
 	}
 
-	// 按后台配置决定是否强制校验图形验证码。
-	if config.GlobalConfig.ServerConfig.EnableCaptcha {
-		if req.CaptchaID == "" || req.CaptchaCode == "" {
-			c.JSON(400, gin.H{"success": false, "error": "请输入验证码"})
-			return
-		}
-		if !VerifyCaptchaCode(req.CaptchaID, req.CaptchaCode) {
-			c.JSON(400, gin.H{"success": false, "error": "验证码错误"})
-			return
-		}
+	if !verifyHumanVerificationForRequest(c, service.HumanScopeAdminLogin, req.HumanVerification) {
+		return
 	}
 
 	admin, err := RoleSvc.VerifyAdminPassword(req.Username, req.Password)
@@ -257,7 +239,7 @@ func AdminLogin(c *gin.Context) {
 	if admin.Role != nil {
 		adminRole = admin.Role.Name
 	}
-	_ = RoleSvc.UpdateAdminLoginInfo(admin.ID, c.ClientIP())
+	_ = RoleSvc.UpdateAdminLoginInfo(admin.ID, GetClientIP(c))
 
 	// 创建会话（数据库持久化）
 	if SessionSvc == nil {
@@ -265,7 +247,7 @@ func AdminLogin(c *gin.Context) {
 		return
 	}
 	sessionDuration, cookieMaxAge := adminSessionPolicy(req.Remember)
-	sessionID, err := SessionSvc.CreateAdminSessionWithDuration(admin.Username, adminRole, c.ClientIP(), c.GetHeader("User-Agent"), sessionDuration)
+	sessionID, err := SessionSvc.CreateAdminSessionWithDuration(admin.Username, adminRole, GetClientIP(c), c.GetHeader("User-Agent"), sessionDuration)
 	if err != nil {
 		c.JSON(500, gin.H{"success": false, "error": "创建会话失败"})
 		return
@@ -355,8 +337,8 @@ func AdminLogout(c *gin.Context) {
 	}
 
 	// 清除Cookie
-	c.SetCookie("admin_session", "", -1, "/", "", false, true)
-	c.SetCookie("csrf_token", "", -1, "/", "", false, false)
+	clearConfiguredCookie(c, "admin_session", true)
+	clearConfiguredCookie(c, "csrf_token", false)
 
 	c.JSON(200, gin.H{"success": true, "message": "已退出登录"})
 }

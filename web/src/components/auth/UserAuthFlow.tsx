@@ -6,6 +6,11 @@ import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'framer-motion'
 import { Button, Input, Switch } from '@/components/ui'
+import {
+  HumanVerificationWidget,
+  type HumanVerificationPayload,
+  type PublicHumanVerificationConfig,
+} from '@/components/auth/HumanVerificationWidget'
 import { apiGet, apiPost } from '@/lib/api'
 import {
   type AuthMode,
@@ -29,10 +34,13 @@ interface UserAuthFlowProps {
 
 interface PublicAuthConfig {
   user_allow_register: boolean
-  user_enable_captcha: boolean
   user_enable_2fa: boolean
   user_require_email_verification: boolean
   email_enabled: boolean
+  human_verification: {
+    user_login?: PublicHumanVerificationConfig
+    user_register?: PublicHumanVerificationConfig
+  }
 }
 
 interface PanelTransform {
@@ -63,6 +71,17 @@ interface RegisterPanelProps {
 const modeOrder: Record<AuthMode, number> = {
   login: 0,
   register: 1,
+}
+
+const defaultUserHumanVerification: Required<PublicAuthConfig['human_verification']> = {
+  user_login: {
+    enabled: false,
+    scope: 'user_login',
+  },
+  user_register: {
+    enabled: false,
+    scope: 'user_register',
+  },
 }
 
 // 切换登录/注册时的弹性过渡（已进入页面后使用）
@@ -221,43 +240,36 @@ function LoginPanel({ authConfig, onAuthenticated, onSwitchMode }: LoginPanelPro
   const { t } = useI18n()
   const { setUser, setIsLoggedIn } = useAppStore()
   const [loading, setLoading] = useState(false)
-  const [captchaId, setCaptchaId] = useState('')
-  const [captchaImage, setCaptchaImage] = useState('')
+  const [humanVerification, setHumanVerification] = useState<HumanVerificationPayload | null>(null)
+  const [humanVerificationReset, setHumanVerificationReset] = useState(0)
   const [formData, setFormData] = useState({
     username: '',
     password: '',
-    captcha: '',
     remember: false,
   })
-
-  const refreshCaptcha = useCallback(async () => {
-    const res = await apiGet<{ captcha_id: string; image: string }>('/api/captcha')
-    if (res.success) {
-      setCaptchaId(res.captcha_id)
-      setCaptchaImage(res.image)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (authConfig.user_enable_captcha) {
-      refreshCaptcha()
-    }
-  }, [authConfig.user_enable_captcha, refreshCaptcha])
+  const humanConfig = authConfig.human_verification.user_login
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!formData.username || !formData.password || (authConfig.user_enable_captcha && !formData.captcha)) {
+    if (!formData.username || !formData.password) {
       toast.error(t('common.fillComplete'))
+      return
+    }
+    if (humanConfig?.enabled && !humanVerification) {
+      toast.error('请完成人机验证')
       return
     }
 
     setLoading(true)
-    const res = await apiPost<{ require_2fa?: boolean; verify_token?: string; user?: UserInfo }>('/api/user/login', {
+    const loginBody: Record<string, unknown> = {
       username: formData.username,
       password: formData.password,
-      ...(authConfig.user_enable_captcha ? { captcha_id: captchaId, captcha_code: formData.captcha } : {}),
       remember: formData.remember,
-    })
+    }
+    if (humanConfig?.enabled && humanVerification) {
+      loginBody.human_verification = humanVerification
+    }
+    const res = await apiPost<{ require_2fa?: boolean; verify_token?: string; user?: UserInfo }>('/api/user/login', loginBody)
     setLoading(false)
 
     if (res.require_2fa && res.verify_token) {
@@ -277,8 +289,9 @@ function LoginPanel({ authConfig, onAuthenticated, onSwitchMode }: LoginPanelPro
     }
 
     toast.error(res.error || t('auth.loginFailed'))
-    if (authConfig.user_enable_captcha) {
-      refreshCaptcha()
+    if (humanConfig?.enabled) {
+      setHumanVerification(null)
+      setHumanVerificationReset((value) => value + 1)
     }
   }
 
@@ -307,27 +320,12 @@ function LoginPanel({ authConfig, onAuthenticated, onSwitchMode }: LoginPanelPro
           icon={<i className="fas fa-lock" />}
         />
 
-        {authConfig.user_enable_captcha && (
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-dark-300">{t('user.captcha')}</label>
-            <div className="flex items-center gap-3">
-              <Input
-                placeholder={t('user.captchaPlaceholder')}
-                value={formData.captcha}
-                onChange={(event) => setFormData({ ...formData, captcha: event.target.value })}
-              />
-              {captchaImage && (
-                <img
-                  src={captchaImage}
-                  alt={t('user.captcha')}
-                  className="h-12 shrink-0 cursor-pointer rounded-lg transition-opacity hover:opacity-80"
-                  onClick={refreshCaptcha}
-                  title={t('common.clickRefresh')}
-                />
-              )}
-            </div>
-          </div>
-        )}
+        <HumanVerificationWidget
+          scope="user_login"
+          config={humanConfig}
+          onChange={setHumanVerification}
+          resetSignal={humanVerificationReset}
+        />
 
         <Switch
           checked={formData.remember}
@@ -367,8 +365,8 @@ function RegisterPanel({ authConfig, onAuthenticated, onSwitchMode }: RegisterPa
   const [loading, setLoading] = useState(false)
   const [sendingCode, setSendingCode] = useState(false)
   const [countdown, setCountdown] = useState(0)
-  const [captchaId, setCaptchaId] = useState('')
-  const [captchaImage, setCaptchaImage] = useState('')
+  const [humanVerification, setHumanVerification] = useState<HumanVerificationPayload | null>(null)
+  const [humanVerificationReset, setHumanVerificationReset] = useState(0)
   const [codeLength, setCodeLength] = useState(6)
   const [codeStatus, setCodeStatus] = useState<CodeStatus>('idle')
   const [formData, setFormData] = useState({
@@ -378,16 +376,8 @@ function RegisterPanel({ authConfig, onAuthenticated, onSwitchMode }: RegisterPa
     phone: '',
     password: '',
     confirmPassword: '',
-    captcha: '',
   })
-
-  const refreshCaptcha = useCallback(async () => {
-    const res = await apiGet<{ captcha_id: string; image: string }>('/api/captcha')
-    if (res.success) {
-      setCaptchaId(res.captcha_id)
-      setCaptchaImage(res.image)
-    }
-  }, [])
+  const humanConfig = authConfig.human_verification.user_register
 
   const loadCodeLength = useCallback(async () => {
     const res = await apiGet<{ code_length: number }>('/api/user/email/code_length')
@@ -397,13 +387,10 @@ function RegisterPanel({ authConfig, onAuthenticated, onSwitchMode }: RegisterPa
   }, [])
 
   useEffect(() => {
-    if (authConfig.user_enable_captcha) {
-      refreshCaptcha()
-    }
     if (authConfig.user_require_email_verification) {
       loadCodeLength()
     }
-  }, [authConfig.user_enable_captcha, authConfig.user_require_email_verification, loadCodeLength, refreshCaptcha])
+  }, [authConfig.user_require_email_verification, loadCodeLength])
 
   useEffect(() => {
     if (countdown <= 0) return
@@ -485,8 +472,8 @@ function RegisterPanel({ authConfig, onAuthenticated, onSwitchMode }: RegisterPa
       toast.error(t('common.fillComplete'))
       return
     }
-    if (authConfig.user_enable_captcha && !formData.captcha) {
-      toast.error(t('common.fillComplete'))
+    if (humanConfig?.enabled && !humanVerification) {
+      toast.error('请完成人机验证')
       return
     }
     if (formData.password !== formData.confirmPassword) {
@@ -503,15 +490,18 @@ function RegisterPanel({ authConfig, onAuthenticated, onSwitchMode }: RegisterPa
     }
 
     setLoading(true)
-    const res = await apiPost<{ user?: UserInfo }>('/api/user/register', {
+    const registerBody: Record<string, unknown> = {
       username: formData.username,
       email: formData.email,
       ...(authConfig.user_require_email_verification ? { email_code: formData.emailCode } : {}),
       phone: formData.phone,
       password: formData.password,
       confirm_password: formData.confirmPassword,
-      ...(authConfig.user_enable_captcha ? { captcha_id: captchaId, captcha_code: formData.captcha } : {}),
-    })
+    }
+    if (humanConfig?.enabled && humanVerification) {
+      registerBody.human_verification = humanVerification
+    }
+    const res = await apiPost<{ user?: UserInfo }>('/api/user/register', registerBody)
     setLoading(false)
 
     if (res.success && res.user) {
@@ -524,8 +514,9 @@ function RegisterPanel({ authConfig, onAuthenticated, onSwitchMode }: RegisterPa
     }
 
     toast.error(res.error || t('auth.registerFailed'))
-    if (authConfig.user_enable_captcha) {
-      refreshCaptcha()
+    if (humanConfig?.enabled) {
+      setHumanVerification(null)
+      setHumanVerificationReset((value) => value + 1)
     }
   }
 
@@ -637,27 +628,12 @@ function RegisterPanel({ authConfig, onAuthenticated, onSwitchMode }: RegisterPa
           icon={<i className="fas fa-lock" />}
         />
 
-        {authConfig.user_enable_captcha && (
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-dark-300">{t('user.captcha')}</label>
-            <div className="flex items-center gap-3">
-              <Input
-                placeholder={t('user.captchaPlaceholder')}
-                value={formData.captcha}
-                onChange={(event) => setFormData({ ...formData, captcha: event.target.value })}
-              />
-              {captchaImage && (
-                <img
-                  src={captchaImage}
-                  alt={t('user.captcha')}
-                  className="h-12 shrink-0 cursor-pointer rounded-lg transition-opacity hover:opacity-80"
-                  onClick={refreshCaptcha}
-                  title={t('common.clickRefresh')}
-                />
-              )}
-            </div>
-          </div>
-        )}
+        <HumanVerificationWidget
+          scope="user_register"
+          config={humanConfig}
+          onChange={setHumanVerification}
+          resetSignal={humanVerificationReset}
+        />
 
         <Button type="submit" className="w-full" loading={loading}>
           {t('auth.register')}
@@ -698,10 +674,10 @@ export function UserAuthFlow({ initialMode }: UserAuthFlowProps) {
   const [willChange, setWillChange] = useState<'transform, opacity' | 'auto'>('transform, opacity')
   const [authConfig, setAuthConfig] = useState<PublicAuthConfig>({
     user_allow_register: true,
-    user_enable_captcha: true,
     user_enable_2fa: true,
     user_require_email_verification: false,
     email_enabled: false,
+    human_verification: defaultUserHumanVerification,
   })
 
   const entryTransform = useMemo(
@@ -714,7 +690,13 @@ export function UserAuthFlow({ initialMode }: UserAuthFlowProps) {
     const loadAuthConfig = async () => {
       const res = await apiGet<{ config: PublicAuthConfig }>('/api/auth/config')
       if (!cancelled && res.success && res.config) {
-        setAuthConfig(res.config)
+        setAuthConfig({
+          ...res.config,
+          human_verification: {
+            ...defaultUserHumanVerification,
+            ...(res.config.human_verification || {}),
+          },
+        })
         if (!res.config.user_allow_register && mode === 'register') {
           setMode('login')
           window.history.replaceState({ authMode: 'login' }, '', '/login/')

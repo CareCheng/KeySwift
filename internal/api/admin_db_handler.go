@@ -177,7 +177,7 @@ func AdminResetEncryptionKey(c *gin.Context) {
 	// 记录操作日志
 	if LogSvc != nil {
 		LogSvc.LogAdminActionSimple("system", "reset_encryption_key", "security", "",
-			fmt.Sprintf("重置了%d位AES加密密钥", keyLength), c.ClientIP(), c.GetHeader("User-Agent"))
+			fmt.Sprintf("重置了%d位AES加密密钥", keyLength), GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{

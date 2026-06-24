@@ -7,6 +7,11 @@ import toast from 'react-hot-toast'
 import { Button, Input, Switch } from '@/components/ui'
 import { apiGet, apiPost } from '@/lib/api'
 import AdminDashboardApp from './AdminDashboardApp'
+import {
+  HumanVerificationWidget,
+  type HumanVerificationPayload,
+  type PublicHumanVerificationConfig,
+} from '@/components/auth/HumanVerificationWidget'
 
 export type AdminAuthStep = 'login' | 'setup' | 'totp'
 type AdminAuthFlowState = AdminAuthStep | 'dashboard'
@@ -24,7 +29,14 @@ interface AuthPanelProps {
 
 interface PublicAuthConfig {
   admin_enable_login: boolean
-  admin_enable_captcha: boolean
+  human_verification: {
+    admin_login?: PublicHumanVerificationConfig
+  }
+}
+
+const defaultAdminHumanVerification: PublicHumanVerificationConfig = {
+  enabled: false,
+  scope: 'admin_login',
 }
 
 function getAdminBasePath() {
@@ -94,24 +106,15 @@ function AuthCard({
 function AdminLoginPanel({ basePath, onNavigate }: AuthPanelProps) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [captchaCode, setCaptchaCode] = useState('')
-  const [captchaId, setCaptchaId] = useState('')
-  const [captchaImage, setCaptchaImage] = useState('')
+  const [humanVerification, setHumanVerification] = useState<HumanVerificationPayload | null>(null)
+  const [humanVerificationReset, setHumanVerificationReset] = useState(0)
   const [remember, setRemember] = useState(false)
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
   const [authConfig, setAuthConfig] = useState<PublicAuthConfig>({
     admin_enable_login: true,
-    admin_enable_captcha: true,
+    human_verification: { admin_login: defaultAdminHumanVerification },
   })
-
-  const loadCaptcha = useCallback(async () => {
-    const res = await apiGet<{ captcha_id: string; image: string }>('/api/captcha')
-    if (res.success && res.captcha_id) {
-      setCaptchaId(res.captcha_id)
-      setCaptchaImage(res.image || '')
-    }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -132,13 +135,13 @@ function AdminLoginPanel({ basePath, onNavigate }: AuthPanelProps) {
         const configRes = await apiGet<{ config: PublicAuthConfig }>('/api/auth/config')
         if (!cancelled && configRes.success && configRes.config) {
           setAuthConfig(configRes.config)
-          if (configRes.config.admin_enable_captcha) {
-            loadCaptcha()
-          }
         }
       } catch {
         if (!cancelled) {
-          loadCaptcha()
+          setAuthConfig({
+            admin_enable_login: true,
+            human_verification: { admin_login: defaultAdminHumanVerification },
+          })
         }
       }
 
@@ -151,7 +154,7 @@ function AdminLoginPanel({ basePath, onNavigate }: AuthPanelProps) {
     return () => {
       cancelled = true
     }
-  }, [basePath, loadCaptcha, onNavigate])
+  }, [basePath, onNavigate])
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -159,8 +162,9 @@ function AdminLoginPanel({ basePath, onNavigate }: AuthPanelProps) {
       toast.error('请输入用户名和密码')
       return
     }
-    if (authConfig.admin_enable_captcha && !captchaCode) {
-      toast.error('请输入验证码')
+    const humanConfig = authConfig.human_verification?.admin_login
+    if (humanConfig?.enabled && !humanVerification) {
+      toast.error('请完成人机验证')
       return
     }
 
@@ -170,7 +174,7 @@ function AdminLoginPanel({ basePath, onNavigate }: AuthPanelProps) {
     const res = await apiPost<{ require_totp?: boolean; needs_setup?: boolean }>(`${currentBasePath}/login`, {
       username,
       password,
-      ...(authConfig.admin_enable_captcha ? { captcha_id: captchaId, captcha_code: captchaCode } : {}),
+      ...(humanConfig?.enabled ? { human_verification: humanVerification } : {}),
       remember,
     })
     setLoading(false)
@@ -184,10 +188,8 @@ function AdminLoginPanel({ basePath, onNavigate }: AuthPanelProps) {
       setTimeout(() => onNavigate('dashboard'), 500)
     } else {
       toast.error(res.error || '登录失败')
-      if (authConfig.admin_enable_captcha) {
-        loadCaptcha()
-      }
-      setCaptchaCode('')
+      setHumanVerification(null)
+      setHumanVerificationReset((value) => value + 1)
     }
   }
 
@@ -225,26 +227,12 @@ function AdminLoginPanel({ basePath, onNavigate }: AuthPanelProps) {
             autoComplete="current-password"
           />
 
-          {authConfig.admin_enable_captcha && (
-            <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-dark-300">验证码</label>
-              <div className="flex items-center gap-3">
-                <Input
-                  placeholder="请输入验证码"
-                  value={captchaCode}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setCaptchaCode(e.target.value)}
-                />
-                {captchaImage && (
-                  <img
-                    src={captchaImage}
-                    alt="验证码"
-                    onClick={loadCaptcha}
-                    className="h-12 rounded-lg cursor-pointer hover:opacity-80 transition-opacity shrink-0"
-                  />
-                )}
-              </div>
-            </div>
-          )}
+          <HumanVerificationWidget
+            scope="admin_login"
+            config={authConfig.human_verification?.admin_login}
+            onChange={setHumanVerification}
+            resetSignal={humanVerificationReset}
+          />
 
           <Switch
             checked={remember}

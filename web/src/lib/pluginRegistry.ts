@@ -74,7 +74,7 @@ export const HOST_ADMIN_PAGES: Record<string, AdminPageDefinition> = {
   users: { id: 'users', title: '用户管理', icon: '👥', permissions: ['user:view'], source: 'host', order: 50 },
   balance: { id: 'balance', title: '余额管理', icon: '💳', permissions: ['balance:view'], source: 'host', order: 60 },
   access: { id: 'access', title: '权限与管理员', icon: '🛡️', permissions: ['role:view', 'admin:view'], source: 'host', order: 70 },
-  config: { id: 'config', title: '系统配置', icon: '⚙️', permissions: ['settings:view', 'settings:payment', 'settings:email', 'settings:database'], source: 'host', order: 80 },
+  config: { id: 'config', title: '系统配置', icon: '⚙️', permissions: ['settings:view', 'settings:security', 'settings:payment', 'settings:email', 'settings:database'], source: 'host', order: 80 },
   plugins: { id: 'plugins', title: '插件管理', icon: '🧩', permissions: ['plugin:view'], source: 'host', order: 90 },
 }
 

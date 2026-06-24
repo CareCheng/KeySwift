@@ -6,6 +6,7 @@ import { ThemeSettings } from './settings/ThemeSettings'
 import { BasicSettings } from './settings/BasicSettings'
 import { LoginSettings } from './settings/LoginSettings'
 import { IpAccessSettings } from './settings/IpAccessSettings'
+import { ReverseProxySettings } from './settings/ReverseProxySettings'
 import { useSettingsState } from './settings/useSettingsState'
 
 /**
@@ -17,6 +18,7 @@ const SUB_TABS = [
   { id: 'theme', label: '主题设置', icon: 'fa-palette' },
   { id: 'basic', label: '基本设置', icon: 'fa-cog' },
   { id: 'login', label: '登录设置', icon: 'fa-sign-in-alt' },
+  { id: 'proxy', label: '访问与代理', icon: 'fa-globe' },
   { id: 'ip', label: 'IP 访问管理', icon: 'fa-network-wired' },
 ] as const
 
@@ -39,6 +41,8 @@ export function SettingsPage() {
         return <BasicSettings state={settingsState} />
       case 'login':
         return <LoginSettings state={settingsState} />
+      case 'proxy':
+        return <ReverseProxySettings />
       case 'ip':
         return <IpAccessSettings />
       default:

@@ -94,7 +94,7 @@ func CreateOrder(c *gin.Context) {
 		quantity = 1
 	}
 
-	order, err := OrderSvc.CreateOrderWithQuantity(userID, username, req.ProductID, quantity, c.ClientIP())
+	order, err := OrderSvc.CreateOrderWithQuantity(userID, username, req.ProductID, quantity, GetClientIP(c))
 	if err != nil {
 		c.JSON(400, gin.H{"success": false, "error": err.Error()})
 		return

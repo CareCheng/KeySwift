@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -111,7 +112,7 @@ func CSRFMiddleware() gin.HandlerFunc {
 		skipPaths := []string{
 			"/api/user/login",
 			"/api/user/register",
-			"/api/captcha",
+			"/api/human-verification/challenge",
 			"/api/user/email/send_code",
 			"/api/user/forgot",
 			"/health",
@@ -160,7 +161,8 @@ func CSRFMiddleware() gin.HandlerFunc {
 func SetCSRFCookie(c *gin.Context, sessionID string) string {
 	token := GenerateCSRFToken(sessionID)
 	// 设置CSRF Cookie（允许JavaScript读取）
-	c.SetCookie(CSRFCookieName, token, int(CSRFTokenExpiry.Seconds()), "/", "", isSecureMode(), false)
+	cfg := CurrentReverseProxyConfig()
+	c.SetCookie(CSRFCookieName, token, int(CSRFTokenExpiry.Seconds()), cfg.AppBasePath, cfg.CookieDomain, IsCookieSecure(c), false)
 	return token
 }
 
@@ -182,13 +184,14 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 
 		// 内容安全策略（CSP）
-		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://api.qrserver.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self';")
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://api.qrserver.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; frame-src 'self' https://challenges.cloudflare.com; frame-ancestors 'self';")
 
 		// 权限策略
 		c.Header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 
-		// HTTPS严格传输安全（仅在HTTPS模式下）
-		if isSecureMode() {
+		// HTTPS严格传输安全仅在外部访问为 HTTPS 且后台启用时返回。
+		proxyCfg := CurrentReverseProxyConfig()
+		if proxyCfg.HSTSEnabled && IsRequestSecure(c) {
 			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 
@@ -330,7 +333,7 @@ func isPublicBrowseAPI(path string) bool {
 		"/api/product/",
 		"/api/categories",
 		"/api/payment/methods",
-		"/api/captcha",
+		"/api/human-verification/challenge",
 	}
 	for _, publicPath := range publicBrowsePaths {
 		if path == publicPath || strings.HasPrefix(path, publicPath) {
@@ -369,7 +372,7 @@ func getRateLimitKey(c *gin.Context, limitType string) string {
 		return "admin:" + sessionID + ":" + limitType
 	}
 
-	return "ip:" + c.ClientIP() + ":" + limitType
+	return "ip:" + GetClientIP(c) + ":" + limitType
 }
 
 // checkRateLimit 检查限流
@@ -488,17 +491,17 @@ func parseTimestamp(ts string) (int64, error) {
 
 // ==================== Cookie 安全增强 ====================
 
-// isSecureMode 检查是否为安全模式（HTTPS）
-func isSecureMode() bool {
-	// 可以通过环境变量或配置控制
-	// 生产环境应返回true
-	return false // 开发环境默认false
-}
-
 // SetSecureCookie 设置安全Cookie
 func SetSecureCookie(c *gin.Context, name, value string, maxAge int, httpOnly bool) {
+	cfg := CurrentReverseProxyConfig()
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(name, value, maxAge, "/", "", isSecureMode(), httpOnly)
+	c.SetCookie(name, value, maxAge, cfg.AppBasePath, cfg.CookieDomain, IsCookieSecure(c), httpOnly)
+}
+
+func clearConfiguredCookie(c *gin.Context, name string, httpOnly bool) {
+	cfg := CurrentReverseProxyConfig()
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(name, "", -1, cfg.AppBasePath, cfg.CookieDomain, IsCookieSecure(c), httpOnly)
 }
 
 // ==================== IP 黑名单 ====================
@@ -538,7 +541,7 @@ func IsBlacklisted(ip string) bool {
 // IPBlacklistMiddleware IP黑名单中间件
 func IPBlacklistMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if IsBlacklisted(c.ClientIP()) {
+		if IsBlacklisted(GetClientIP(c)) {
 			RenderErrorPage(c, 403, "您的 IP 已被列入黑名单，访问被拒绝", 0)
 			c.Abort()
 			return
@@ -628,9 +631,9 @@ func IPWhitelistMiddleware() gin.HandlerFunc {
 		}
 
 		// 检查IP是否在白名单中
-		clientIP := c.ClientIP()
+		clientIP := GetClientIP(c)
 		for _, ip := range whitelist {
-			if ip == clientIP {
+			if ipMatchesAccessRule(clientIP, ip) {
 				c.Next()
 				return
 			}
@@ -640,6 +643,25 @@ func IPWhitelistMiddleware() gin.HandlerFunc {
 		RenderErrorPage(c, 403, "您的 IP 不在白名单中，访问被拒绝", 0)
 		c.Abort()
 	}
+}
+
+func ipMatchesAccessRule(clientIP, rule string) bool {
+	client := net.ParseIP(strings.TrimSpace(clientIP))
+	if client == nil {
+		return false
+	}
+	rule = strings.TrimSpace(rule)
+	if rule == "" {
+		return false
+	}
+	if ip := net.ParseIP(rule); ip != nil {
+		return ip.Equal(client)
+	}
+	_, network, err := net.ParseCIDR(rule)
+	if err != nil {
+		return false
+	}
+	return network.Contains(client)
 }
 
 // ==================== 安全清理任务 ====================

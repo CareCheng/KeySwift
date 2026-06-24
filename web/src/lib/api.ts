@@ -131,6 +131,49 @@ export function apiPost<T = Record<string, unknown>>(
 }
 
 /**
+ * 表单上传请求
+ */
+export async function apiUpload<T = Record<string, unknown>>(
+  url: string,
+  formData: FormData
+): Promise<T & { success: boolean; error?: string }> {
+  const headers: Record<string, string> = {}
+  let csrfToken = apiConfig.csrfToken || getCookie('csrf_token')
+  if (!csrfToken) {
+    csrfToken = await getCSRFToken()
+  }
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken
+  }
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), apiConfig.timeout)
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    const data = await res.json()
+    if (res.status === 403 && data.error?.includes('CSRF')) {
+      apiConfig.csrfToken = null
+      await getCSRFToken()
+      return apiUpload(url, formData)
+    }
+    return data
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { success: false, error: '请求超时' } as T & { success: boolean; error: string }
+    }
+    return { success: false, error: '网络错误' } as T & { success: boolean; error: string }
+  }
+}
+
+/**
  * PUT 请求
  */
 export function apiPut<T = Record<string, unknown>>(

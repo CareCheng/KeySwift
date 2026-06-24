@@ -99,7 +99,7 @@ const zhTranslations = {
     tryOtherKeywords: '试试其他关键词？',
   },
   user: {
-    captcha: '图形验证码',
+    captcha: '人机验证',
     captchaPlaceholder: '请输入验证码',
     codeCorrect: '验证码正确',
     codeIncorrect: '验证码错误或已过期',

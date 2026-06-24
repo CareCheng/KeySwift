@@ -405,7 +405,7 @@ func LogAdminOperation(c *gin.Context, action, resourceType, resourceID string, 
 		return
 	}
 	adminUsername := GetAdminUsername(c)
-	LogSvc.LogAdminActionSimple(adminUsername, action, resourceType, resourceID, detail, c.ClientIP(), c.GetHeader("User-Agent"))
+	LogSvc.LogAdminActionSimple(adminUsername, action, resourceType, resourceID, detail, GetClientIP(c), c.GetHeader("User-Agent"))
 }
 
 // LogUserOperation 记录用户操作日志
@@ -424,7 +424,7 @@ func LogUserOperation(c *gin.Context, action, resourceType, resourceID string, d
 		return
 	}
 	username := GetUsername(c)
-	LogSvc.LogUserActionSimple(userID, username, action, resourceType, resourceID, detail, c.ClientIP(), c.GetHeader("User-Agent"))
+	LogSvc.LogUserActionSimple(userID, username, action, resourceType, resourceID, detail, GetClientIP(c), c.GetHeader("User-Agent"))
 }
 
 // ==================== JSON 绑定辅助 ====================

@@ -134,18 +134,62 @@ export interface Settings {
   admin_suffix: string
   server_port: number
   enable_login: boolean
-  enable_captcha: boolean
+  admin_human_verification_enabled: boolean
+  admin_human_verification_provider_id: string
   admin_username: string
   enable_2fa: boolean
   totp_secret: string
   enable_session_timeout: boolean
   session_timeout: number
   user_allow_register: boolean
-  user_enable_captcha: boolean
+  user_login_human_verification_enabled: boolean
+  user_login_human_verification_provider_id: string
+  user_register_human_verification_enabled: boolean
+  user_register_human_verification_provider_id: string
+  user_register_human_verification_follow_login: boolean
   user_enable_2fa: boolean
   user_require_email_verification: boolean
   user_enable_session_timeout: boolean
   user_session_timeout: number
+}
+
+// 反向代理访问配置
+export interface ReverseProxyConfig {
+  public_base_url: string
+  reverse_proxy_enabled: boolean
+  trusted_proxies: string[]
+  client_ip_header: string
+  real_ip_header: string
+  proto_header: string
+  host_header: string
+  port_header: string
+  cookie_secure_mode: 'auto' | 'always' | 'never'
+  cookie_domain: string
+  app_base_path: string
+  cors_enabled: boolean
+  cors_allow_origins: string[]
+  cors_allow_credentials: boolean
+  hsts_enabled: boolean
+}
+
+export interface ReverseProxyDiagnostics {
+  client_ip: {
+    client_ip: string
+    remote_ip: string
+    forwarded_for: string
+    real_ip: string
+    trusted_proxy: boolean
+    source: string
+  }
+  external_access: {
+    scheme: string
+    host: string
+    port: string
+    base_url: string
+    path_prefix: string
+    trusted_proxy: boolean
+  }
+  headers: Record<string, string>
 }
 
 export { HOST_ADMIN_PAGES as PAGE_CONFIG } from '@/lib/pluginRegistry'

@@ -113,13 +113,15 @@ func applyTestSchema(t *testing.T, db *gorm.DB) {
 
 // TestServices 测试服务集合
 type TestServices struct {
-	DB         *gorm.DB
-	Repo       *repository.Repository
-	UserSvc    *service.UserService
-	OrderSvc   *service.OrderService
-	ProductSvc *service.ProductService
-	SessionSvc *service.SessionService
-	BalanceSvc *service.BalanceService
+	DB             *gorm.DB
+	Repo           *repository.Repository
+	UserSvc        *service.UserService
+	OrderSvc       *service.OrderService
+	ProductSvc     *service.ProductService
+	SessionSvc     *service.SessionService
+	BalanceSvc     *service.BalanceService
+	GovernanceSvc  *service.GovernanceService
+	OrderKernelSvc *service.OrderKernelService
 }
 
 // SetupTestServices 创建测试服务实例
@@ -134,14 +136,20 @@ func SetupTestServices(t *testing.T) (*TestServices, func()) {
 		},
 	}
 
+	governanceSvc := service.NewGovernanceService(repo)
+	orderKernelSvc := service.NewOrderKernelService(repo, governanceSvc)
+	orderSvc := service.NewOrderService(repo, cfg)
+	orderSvc.SetOrderKernelService(orderKernelSvc)
 	services := &TestServices{
-		DB:         db,
-		Repo:       repo,
-		UserSvc:    service.NewUserService(repo),
-		OrderSvc:   service.NewOrderService(repo, cfg),
-		ProductSvc: service.NewProductService(repo),
-		SessionSvc: service.NewSessionService(repo),
-		BalanceSvc: service.NewBalanceService(repo),
+		DB:             db,
+		Repo:           repo,
+		UserSvc:        service.NewUserService(repo),
+		OrderSvc:       orderSvc,
+		ProductSvc:     service.NewProductService(repo),
+		SessionSvc:     service.NewSessionService(repo),
+		BalanceSvc:     service.NewBalanceService(repo),
+		GovernanceSvc:  governanceSvc,
+		OrderKernelSvc: orderKernelSvc,
 	}
 
 	return services, cleanup

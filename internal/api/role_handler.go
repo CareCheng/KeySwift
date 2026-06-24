@@ -7,6 +7,7 @@ import (
 
 	"user-frontend/internal/model"
 	pluginapi "user-frontend/internal/plugin"
+	"user-frontend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -218,11 +219,12 @@ func AdminCreateRole(c *gin.Context) {
 		c.JSON(400, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	syncRolePermissionGrants(c, role.ID, req.Permissions)
 
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "创建角色", "role", "", req, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "创建角色", "role", "", req, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "data": buildRoleResponse(*role)})
@@ -257,11 +259,12 @@ func AdminUpdateRole(c *gin.Context) {
 		c.JSON(400, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	syncRolePermissionGrants(c, uint(id), req.Permissions)
 
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "更新角色", "role", c.Param("id"), req, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "更新角色", "role", c.Param("id"), req, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "更新成功"})
@@ -295,7 +298,7 @@ func AdminDeleteRole(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "删除角色", "role", c.Param("id"), gin.H{"name": roleName}, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "删除角色", "role", c.Param("id"), gin.H{"name": roleName}, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "删除成功"})
@@ -311,15 +314,86 @@ func AdminGetPermissions(c *gin.Context) {
 	pluginPermissions := syncPluginPermissionsToRoleService()
 	permissions := RoleSvc.GetAllPermissions()
 	groups := RoleSvc.GetPermissionGroups()
+	var definitions []model.PermissionDefinition
+	if GovernanceSvc != nil {
+		if records, err := GovernanceSvc.ListPermissionDefinitions(); err == nil {
+			definitions = records
+		}
+	}
 
 	c.JSON(200, gin.H{
 		"success":            true,
 		"permissions":        permissions,
+		"definitions":        definitions,
 		"host_permissions":   model.AllPermissions,
 		"plugin_permissions": buildPluginPermissionResponses(pluginPermissions),
 		"groups":             groups,
 		"templates":          model.PermissionTemplates,
 	})
+}
+
+// AdminGrantSubjectDataScope 为主体授予数据范围。
+func AdminGrantSubjectDataScope(c *gin.Context) {
+	if GovernanceSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "治理服务未初始化"})
+		return
+	}
+	var req struct {
+		SubjectID     string `json:"subject_id" binding:"required"`
+		SubjectType   string `json:"subject_type"`
+		ResourceType  string `json:"resource_type" binding:"required"`
+		ScopeType     string `json:"scope_type" binding:"required"`
+		ScopeValue    string `json:"scope_value"`
+		OwnerPluginID string `json:"owner_plugin_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": "参数错误"})
+		return
+	}
+	subjectID := currentSubjectID(c)
+	err := GovernanceSvc.GrantSubjectDataScope(req.SubjectID, req.SubjectType, service.DataScope{
+		ResourceType:  req.ResourceType,
+		ScopeType:     req.ScopeType,
+		ScopeValue:    req.ScopeValue,
+		OwnerPluginID: req.OwnerPluginID,
+	}, subjectID)
+	if err != nil {
+		c.JSON(400, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	_ = GovernanceSvc.RecordAudit(service.AuditInput{
+		ActorSubjectID: subjectID,
+		Action:         "subject.data_scope.grant",
+		ResourceType:   "subject",
+		ResourceID:     req.SubjectID,
+		RiskLevel:      "high",
+		IP:             GetClientIP(c),
+		UserAgent:      c.GetHeader("User-Agent"),
+		Payload:        req,
+	})
+	c.JSON(200, gin.H{"success": true})
+}
+
+// AdminGetSubjectDataScopes 获取主体数据范围。
+func AdminGetSubjectDataScopes(c *gin.Context) {
+	if GovernanceSvc == nil {
+		c.JSON(500, gin.H{"success": false, "error": "治理服务未初始化"})
+		return
+	}
+	scopes, err := GovernanceSvc.ListSubjectDataScopes(c.Query("subject_id"))
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": "读取数据范围失败"})
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "scopes": scopes})
+}
+
+func syncRolePermissionGrants(c *gin.Context, roleID uint, permissions []string) {
+	if GovernanceSvc == nil {
+		return
+	}
+	subjectID := currentSubjectID(c)
+	_ = GovernanceSvc.SyncRolePermissionGrants(roleID, permissions, subjectID)
 }
 
 // ==================== 管理员管理 API ====================
@@ -407,7 +481,7 @@ func AdminCreateAdmin(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "创建管理员", "admin", "", gin.H{"username": req.Username, "role_id": req.RoleID}, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "创建管理员", "admin", "", gin.H{"username": req.Username, "role_id": req.RoleID}, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "data": buildAdminResponse(*admin)})
@@ -446,7 +520,7 @@ func AdminUpdateAdmin(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "更新管理员", "admin", c.Param("id"), req, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "更新管理员", "admin", c.Param("id"), req, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "更新成功"})
@@ -482,7 +556,7 @@ func AdminUpdateAdminPassword(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "重置密码", "admin", c.Param("id"), nil, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "重置密码", "admin", c.Param("id"), nil, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "密码更新成功"})
@@ -516,7 +590,7 @@ func AdminDeleteAdmin(c *gin.Context) {
 	// 记录操作日志
 	adminUsername, _ := c.Get("admin_username")
 	if LogSvc != nil {
-		LogSvc.LogAdminActionSimple(adminUsername.(string), "删除管理员", "admin", c.Param("id"), gin.H{"username": adminName}, c.ClientIP(), c.GetHeader("User-Agent"))
+		LogSvc.LogAdminActionSimple(adminUsername.(string), "删除管理员", "admin", c.Param("id"), gin.H{"username": adminName}, GetClientIP(c), c.GetHeader("User-Agent"))
 	}
 
 	c.JSON(200, gin.H{"success": true, "message": "删除成功"})
@@ -557,6 +631,16 @@ func AdminGetMyPermissions(c *gin.Context) {
 // PermissionRequired 权限检查中间件
 func PermissionRequired(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if subject, ok := CurrentSubjectContext(c); ok {
+			if subjectHasRole(subject, "super_admin") || subjectHasPermission(subject, permission) {
+				c.Next()
+				return
+			}
+			c.JSON(403, gin.H{"success": false, "error": "无权限执行此操作"})
+			c.Abort()
+			return
+		}
+
 		adminUsername, exists := c.Get("admin_username")
 		if !exists {
 			c.JSON(401, gin.H{"success": false, "error": "未登录"})
